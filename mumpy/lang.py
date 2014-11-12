@@ -2,7 +2,7 @@
 __author__ = 'christopher'
 import string
 import time
-from mumpy.env import MUMPSEnvironment
+import mumpy
 
 
 ###################
@@ -17,7 +17,9 @@ def new_var(args, env):
 
 def do_cmd(args, env):
     """Perform a subroutine call."""
-    pass
+    for sub in args:
+        env.push_func_to_stack(sub)
+        sub.execute()
 
 
 def halt(args, env):
@@ -157,7 +159,7 @@ class MUMPSCommand:
             )
 
         # Check that we got a valid environment
-        if not isinstance(env, MUMPSEnvironment):
+        if not isinstance(env, mumpy.MUMPSEnvironment):
             raise TypeError("A valid MUMPS environment must be specified.")
 
         self.cmd = cmd
@@ -186,7 +188,7 @@ class MUMPSCommand:
 
 
 class MUMPSFuncSubCall:
-    def __init__(self, tag, env, args=None, as_func=False, rou=None):
+    def __init__(self, tag, env, args=None, is_func=False, rou=None):
         """Initialize a MUMPS Function or Subroutine call."""
         # The tag should be a valid MUMPS Identifier
         if not isinstance(tag, MUMPSIdentifier):
@@ -200,13 +202,13 @@ class MUMPSFuncSubCall:
                                    err_type="INVALID ARGUMENTS")
 
         # Check that we got a valid environment
-        if not isinstance(env, MUMPSEnvironment):
+        if not isinstance(env, mumpy.MUMPSEnvironment):
             raise TypeError("A valid MUMPS environment must be specified.")
 
         self.tag = tag
         self.args = args
         self.env = env
-        self.as_func = as_func
+        self.as_func = is_func
         self.rou = rou
 
     def __repr__(self):
@@ -218,6 +220,9 @@ class MUMPSFuncSubCall:
                     as_func=self.as_func,
                     rou=self.rou,
                 ))
+
+    def execute(self):
+        pass
 
 
 class MUMPSExpression:

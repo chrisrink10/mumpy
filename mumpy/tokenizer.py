@@ -1,7 +1,6 @@
 """MUMPy Tokenizer"""
-import traceback
 import ply.lex as lex
-from mumpy.lang import MUMPSSyntaxError
+import mumpy
 
 
 # noinspection PyMethodMayBeStatic,PyPep8Naming
@@ -241,7 +240,7 @@ class MUMPSLexer:
 
     def t_command_error(self, t):
         """Lexer generic error function."""
-        raise MUMPSSyntaxError("Error in command state: {err}".format(
+        raise mumpy.MUMPSSyntaxError("Error in command state: {err}".format(
             err=t.value), err_type="LEX ERROR")
 
     ###################
@@ -276,8 +275,9 @@ class MUMPSLexer:
                 self.lexer.begin('command')
                 #print("t_KEYWORD: beginning command state")
             except KeyError:
-                raise MUMPSSyntaxError("Expected COMMAND, got {symb}.".format(
-                    symb=kw), err_type="INVALID COMMAND")
+                raise mumpy.MUMPSSyntaxError("Expected COMMAND, "
+                                             "got {symb}.".format(symb=kw),
+                                             err_type="INVALID COMMAND")
         return t
 
     @lex.TOKEN(r'[ ]{1}')
@@ -306,11 +306,12 @@ class MUMPSLexer:
         """Lexer generic error function."""
         # At Lexer position 0, we expect to see a Tag/Routine name
         if t.lexpos == 0:
-            raise MUMPSSyntaxError("Expected SYMBOL or SPACE, got {}.".format(
-                t.value), err_type="INVALID TAG")
+            raise mumpy.MUMPSSyntaxError("Expected SYMBOL or SPACE, "
+                                         "got {}.".format(t.value),
+                                         err_type="INVALID TAG")
 
         # Otherwise, raise a generic error
-        raise MUMPSSyntaxError("No '{err}' command found".format(
+        raise mumpy.MUMPSSyntaxError("No '{err}' command found".format(
             err=t.value), err_type="LEX ERROR")
 
     ###################

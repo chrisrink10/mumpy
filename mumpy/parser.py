@@ -1,17 +1,15 @@
 """MUMPy Parser"""
 import logging
-import traceback
 import ply.yacc as yacc
+import mumpy
 import mumpy.lang as lang
-from mumpy.tokenizer import MUMPSLexer
-from mumpy.compiler import MUMPSFile
 
 
 # noinspection PyMethodMayBeStatic
 class MUMPSParser:
     def __init__(self, env, interpreter=False, debug=False):
-        self.m = MUMPSLexer(is_rou=False if interpreter else True,
-                            debug=debug)
+        self.m = mumpy.MUMPSLexer(is_rou=False if interpreter else True,
+                                  debug=debug)
         self.tokens = self.m.tokens
         self.debug = debug
 
@@ -60,12 +58,12 @@ class MUMPSParser:
         try:
             p.execute()
         except Exception as e:
-            raise lang.MUMPSSyntaxError(e)
+            raise mumpy.MUMPSSyntaxError(e)
 
     def parse_file(self, f):
         """Parse a MUMPSFile."""
         # Check that we got a compiled file
-        if not isinstance(f, MUMPSFile):
+        if not isinstance(f, mumpy.MUMPSFile):
             raise TypeError("Please specify a valid MUMPS routine.")
 
         # Parse each line
@@ -89,8 +87,17 @@ class MUMPSParser:
     # GENERIC INPUT
     ###################
     def p_start(self, p):
-        """start : SYMBOL valid_input
-                 | SPACE valid_input"""
+        """start : tag_line
+                 | command_line"""
+        p[0] = p[2]
+
+    def p_tag_line(self, p):
+        """tag_line : SYMBOL valid_input"""
+        self.env.set_current_tag(p[1])
+        p[0] = p[2]
+
+    def p_command_line(self, p):
+        """command_line : SPACE valid_input"""
         p[0] = p[2]
 
     def p_input(self, p):
@@ -99,9 +106,9 @@ class MUMPSParser:
                        | command SPACE
                        | command"""
         if len(p) >= 4:
-            p[0] = lang.MUMPSLine(p[3], p[1])
+            p[0] = mumpy.MUMPSLine(p[3], p[1])
         else:
-            p[0] = lang.MUMPSLine(p[1])
+            p[0] = mumpy.MUMPSLine(p[1])
 
     def p_command_argument(self, p):
         """command : write_command
@@ -125,7 +132,7 @@ class MUMPSParser:
     ###################
     def p_new_command(self, p):
         """new_command : NEW SPACE symbol_list"""
-        p[0] = lang.MUMPSCommand(lang.new_var, p[3], self.env)
+        p[0] = mumpy.MUMPSCommand(lang.new_var, p[3], self.env)
 
     def p_do_command(self, p):
         """do_command : DO SPACE subroutine_call_list
@@ -137,11 +144,11 @@ class MUMPSParser:
             post = None
             args = p[3]
 
-        p[0] = lang.MUMPSCommand(None, args, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(None, args, self.env, post=post)
 
     def p_if_command(self, p):
         """if_command : IF argument_list"""
-        p[0] = lang.MUMPSCommand(lang.if_cmd, p[2], self.env)
+        p[0] = mumpy.MUMPSCommand(lang.if_cmd, p[2], self.env)
 
     def p_kill_command(self, p):
         """kill_command : KILL SPACE symbol_list
@@ -155,7 +162,7 @@ class MUMPSParser:
             symbols = p[3]
 
         # Kill the specified symbols
-        p[0] = lang.MUMPSCommand(lang.kill, symbols, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(lang.kill, symbols, self.env, post=post)
 
     def p_kill_all_command(self, p):
         """kill_all_command : KILL no_argument
@@ -164,7 +171,7 @@ class MUMPSParser:
         post = p[3] if len(p) > 4 else None
 
         # Kill the specified symbols
-        p[0] = lang.MUMPSCommand(lang.kill_all, None, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(lang.kill_all, None, self.env, post=post)
 
     def p_set_command(self, p):
         """set_command : SET SPACE assignment_list
@@ -178,7 +185,7 @@ class MUMPSParser:
             args = p[3]
 
         # Set the values
-        p[0] = lang.MUMPSCommand(lang.set_var, args, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(lang.set_var, args, self.env, post=post)
 
     def p_read_command(self, p):
         """read_command : READ SPACE argument_list
@@ -192,7 +199,7 @@ class MUMPSParser:
             args = p[3]
 
         # Write out the outputs
-        p[0] = lang.MUMPSCommand(lang.read, args, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(lang.read, args, self.env, post=post)
 
     def p_write_command(self, p):
         """write_command : WRITE SPACE argument_list
@@ -206,11 +213,11 @@ class MUMPSParser:
             args = p[3]
 
         # Write out the outputs
-        p[0] = lang.MUMPSCommand(lang.write, args, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(lang.write, args, self.env, post=post)
 
     def p_write_symbols(self, p):
         """write_symbols : WRITE no_argument"""
-        p[0] = lang.MUMPSCommand(lang.write_symbols, None, self.env)
+        p[0] = mumpy.MUMPSCommand(lang.write_symbols, None, self.env)
 
     def p_xecute_command(self, p):
         """xecute_command : XECUTE SPACE argument_list
@@ -224,20 +231,20 @@ class MUMPSParser:
             args = p[3]
 
         # Execute the code in each expression
-        p[0] = lang.MUMPSCommand(self.parse_xecute, args, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(self.parse_xecute, args, self.env, post=post)
 
     def p_quit(self, p):
         """quit_command : QUIT
                         | QUIT SPACE expression"""
         # Handle the post-conditional if it exists
         args = p[3] if len(p) == 4 else None
-        p[0] = lang.MUMPSCommand(lang.quit_cmd, args, self.env)
+        p[0] = mumpy.MUMPSCommand(lang.quit_cmd, args, self.env)
 
     def p_quit_post(self, p):
         """quit_post_command : QUIT COLON expression
                              | QUIT COLON expression SPACE expression"""
-        args = lang.MUMPSArgumentList(p[5]) if len(p) > 4 else None
-        p[0] = lang.MUMPSCommand(lang.quit_cmd, args, self.env, post=p[3])
+        args = mumpy.MUMPSArgumentList(p[5]) if len(p) > 4 else None
+        p[0] = mumpy.MUMPSCommand(lang.quit_cmd, args, self.env, post=p[3])
 
     def p_halt(self, p):
         """halt_command : HALT_HANG
@@ -245,7 +252,7 @@ class MUMPSParser:
                         | HALT_HANG COLON expression
                         | HALT COLON expression"""
         post = p[3] if len(p) == 4 else None
-        p[0] = lang.MUMPSCommand(lang.halt, None, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(lang.halt, None, self.env, post=post)
 
     def p_hang(self, p):
         """hang_command : HALT_HANG SPACE numeric
@@ -255,13 +262,13 @@ class MUMPSParser:
         # Handle the post-conditional if it exists
         if len(p) > 4:
             post = p[3]
-            num = lang.MUMPSArgumentList(p[5].as_number())
+            num = mumpy.MUMPSArgumentList(p[5].as_number())
         else:
             post = None
-            num = lang.MUMPSArgumentList(p[3].as_number())
+            num = mumpy.MUMPSArgumentList(p[3].as_number())
 
         # Put the system to sleep for the specified number of seconds
-        p[0] = lang.MUMPSCommand(lang.hang, num, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(lang.hang, num, self.env, post=post)
 
     ###################
     # COMMAND MISC
@@ -274,9 +281,9 @@ class MUMPSParser:
         """subroutine_call_list : subroutine_call_list COMMA subroutine_call
                                 | subroutine_call"""
         if len(p) == 4:
-            p[0] = lang.MUMPSArgumentList(p[3], p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
         else:
-            p[0] = lang.MUMPSArgumentList(p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[1])
 
     def p_subroutine_call(self, p):
         """subroutine_call : subroutine_call_tag
@@ -288,40 +295,40 @@ class MUMPSParser:
                                | identifier routine_global LPAREN RPAREN
                                | identifier routine_global LPAREN func_sub_argument_list RPAREN"""
         args = p[4] if len(p) == 6 else None
-        p[0] = lang.MUMPSFuncSubCall(p[1], self.env, args=args,
-                                     as_func=False, rou=p[2])
+        p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, args=args,
+                                      is_func=False, rou=p[2])
 
     def p_subroutine_call_no_tag(self, p):
         """subroutine_call_no_tag : routine_global
                                   | routine_global LPAREN RPAREN
                                   | routine_global LPAREN func_sub_argument_list RPAREN"""
         args = p[3] if len(p) == 5 else None
-        p[0] = lang.MUMPSFuncSubCall(p[1], self.env, args=args,
-                                     as_func=False, rou=p[1])
+        p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, args=args,
+                                      is_func=False, rou=p[1])
 
     def p_function_call(self, p):
         """function_call : EXTRINSIC identifier routine_global
                          | EXTRINSIC identifier routine_global LPAREN RPAREN
                          | EXTRINSIC identifier routine_global LPAREN func_sub_argument_list RPAREN"""
         args = p[5] if len(p) == 7 else None
-        p[0] = lang.MUMPSFuncSubCall(p[2], self.env, args=args,
-                                     as_func=True, rou=p[3])
+        p[0] = mumpy.MUMPSFuncSubCall(p[2], self.env, args=args,
+                                      is_func=True, rou=p[3])
 
     def p_function_call_no_tag(self, p):
         """function_call : EXTRINSIC routine_global
                          | EXTRINSIC routine_global LPAREN RPAREN
                          | EXTRINSIC routine_global LPAREN func_sub_argument_list RPAREN"""
         args = p[4] if len(p) == 6 else None
-        p[0] = lang.MUMPSFuncSubCall(p[2], self.env, args=args,
-                                     as_func=True, rou=p[2])
+        p[0] = mumpy.MUMPSFuncSubCall(p[2], self.env, args=args,
+                                      is_func=True, rou=p[2])
 
     def p_func_sub_argument_list(self, p):
         """func_sub_argument_list : func_sub_argument_list COMMA func_sub_argument
                                   | func_sub_argument"""
         if len(p) == 4:
-            p[0] = lang.MUMPSArgumentList(p[3], p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
         else:
-            p[0] = lang.MUMPSArgumentList(p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[1])
 
     def p_func_sub_argument(self, p):
         """func_sub_argument : pointer_argument
@@ -336,17 +343,17 @@ class MUMPSParser:
         """symbol_list : symbol_list COMMA identifier
                        | identifier"""
         if len(p) == 4:
-            p[0] = lang.MUMPSArgumentList(p[1], p[3])
+            p[0] = mumpy.MUMPSArgumentList(p[1], p[3])
         else:
-            p[0] = lang.MUMPSArgumentList(p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[1])
 
     def p_argument_list(self, p):
         """argument_list : argument_list COMMA expression
                          | expression"""
         if len(p) == 4:
-            p[0] = lang.MUMPSArgumentList(p[3], p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
         else:
-            p[0] = lang.MUMPSArgumentList(p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[1])
 
     def p_assignment(self, p):
         """assignment : identifier EQUALS expression"""
@@ -356,9 +363,9 @@ class MUMPSParser:
         """assignment_list : assignment_list COMMA assignment
                            | assignment"""
         if len(p) == 4:
-            p[0] = lang.MUMPSArgumentList(p[3], p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
         else:
-            p[0] = lang.MUMPSArgumentList(p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[1])
 
     def p_no_arguments(self, p):
         """no_argument : SPACE SPACE"""
@@ -387,7 +394,7 @@ class MUMPSParser:
                       | numeric_op
                       | expression_parens
                       | identifier"""
-        p[0] = lang.MUMPSExpression(p[1])
+        p[0] = mumpy.MUMPSExpression(p[1])
 
     def p_expression_parens(self, p):
         """expression_parens : LPAREN expression RPAREN"""
@@ -404,7 +411,7 @@ class MUMPSParser:
         else:
             v = p[1][1:]
 
-        p[0] = lang.MUMPSExpression(v)
+        p[0] = mumpy.MUMPSExpression(v)
 
     def p_numeric_op(self, p):
         """numeric_op : numeric
@@ -421,15 +428,15 @@ class MUMPSParser:
         """numeric : NUMBER
                    | uplus
                    | uminus"""
-        p[0] = lang.MUMPSExpression(p[1])
+        p[0] = mumpy.MUMPSExpression(p[1])
 
     def p_string_concat(self, p):
         """string_concat : expression CONCAT expression"""
-        p[0] = lang.MUMPSExpression(p[1]).concat(p[3])
+        p[0] = mumpy.MUMPSExpression(p[1]).concat(p[3])
 
     def p_identifier(self, p):
         """identifier : SYMBOL"""
-        p[0] = lang.MUMPSIdentifier(p[1], self.env)
+        p[0] = mumpy.MUMPSIdentifier(p[1], self.env)
 
     def p_tag(self, p):
         """tag : identifier LPAREN tag_arguments RPAREN
@@ -447,9 +454,9 @@ class MUMPSParser:
         """tag_arguments : tag_arguments COMMA identifier
                          | identifier"""
         if len(p) == 4:
-            p[0] = lang.MUMPSArgumentList(p[3], p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
         else:
-            p[0] = lang.MUMPSArgumentList(p[1])
+            p[0] = mumpy.MUMPSArgumentList(p[1])
 
     ###################
     # LOGIC
@@ -503,26 +510,26 @@ class MUMPSParser:
 
     def p_follows(self, p):
         """follows_expr : expression FOLLOWS expression"""
-        p[0] = lang.MUMPSExpression(p[1]).follows(p[3])
+        p[0] = mumpy.MUMPSExpression(p[1]).follows(p[3])
 
     def p_sorts_after(self, p):
         """sorts_after_expr : expression SORTS_AFTER expression"""
-        p[0] = lang.MUMPSExpression(p[1]).sorts_after(p[3])
+        p[0] = mumpy.MUMPSExpression(p[1]).sorts_after(p[3])
 
     def p_contains(self, p):
         """contains_expr : expression CONTAINS expression"""
-        p[0] = lang.MUMPSExpression(p[1]).contains(p[3])
+        p[0] = mumpy.MUMPSExpression(p[1]).contains(p[3])
 
     ###################
     # ARITHMETIC
     ###################
     def p_uplus(self, p):
         """uplus : PLUS expression %prec UPLUS"""
-        p[0] = +lang.MUMPSExpression(p[2])
+        p[0] = +mumpy.MUMPSExpression(p[2])
 
     def p_uminus(self, p):
         """uminus : MINUS expression %prec UMINUS"""
-        p[0] = -lang.MUMPSExpression(p[2])
+        p[0] = -mumpy.MUMPSExpression(p[2])
 
     def p_addition(self, p):
         """addition : expression PLUS expression"""

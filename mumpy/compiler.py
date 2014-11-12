@@ -5,8 +5,7 @@ interpreter can use."""
 __author__ = 'christopher'
 import importlib
 import os.path
-from mumpy.lang import MUMPSSyntaxError
-from mumpy.tokenizer import MUMPSLexer
+import mumpy
 
 
 class MUMPSFile:
@@ -22,7 +21,7 @@ class MUMPSFile:
             raise TypeError("Routine names must be a valid string.")
 
         # Set up the Lexer
-        self.lex = MUMPSLexer(is_rou=True, debug=debug)
+        self.lex = mumpy.MUMPSLexer(is_rou=True, debug=debug)
 
         # Get a few base items
         self.rou = os.path.basename(rou)
@@ -66,7 +65,7 @@ class MUMPSFile:
                 # Lex the line
                 try:
                     tokens = self.lex.lex(line)
-                except MUMPSSyntaxError as e:
+                except mumpy.MUMPSSyntaxError as e:
                     raise MUMPSCompileError(e)
 
                 # MUMPS has specific rules about the first chars in a line
@@ -205,7 +204,7 @@ def _process_line(line):
 class MUMPSCompileError(Exception):
     """Raised if there was an error compiling a routine to intermediate form."""
     def __init__(self, msg, line=None, err_type=None):
-        if isinstance(msg, MUMPSSyntaxError):
+        if isinstance(msg, mumpy.MUMPSSyntaxError):
             self.msg = msg.msg
             self.err_type = msg.err_type
         else:

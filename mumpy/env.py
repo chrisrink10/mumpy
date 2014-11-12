@@ -4,6 +4,7 @@ Provide environment stack management and other environment functions
 such as maintaining the current input and output devices."""
 __author__ = 'christopher'
 import sys
+import mumpy
 
 
 class MUMPSEnvironment:
@@ -23,12 +24,38 @@ class MUMPSEnvironment:
 
         # Environment defaults
         self.current_tag = None
+        self.current_rou = None
 
     def __repr__(self):
         """String representation of this environment."""
         return "Environment()"
 
+    def set_current_tag(self, tag, rou=None):
+        """Set the currently executing tag in the environment. If rou is
+        not specified, the current routine is assumed."""
+        if not isinstance(tag, str):
+            raise TypeError("Expecting TAG, got {}".format(type(tag)))
+        self.current_tag = tag
+        if rou is not None:
+            self.set_current_rou(rou)
+
+    def set_current_rou(self, rou):
+        """Set the current routine in the environment."""
+        if not isinstance(rou, mumpy.MUMPSFile):
+            raise TypeError("Expecting ROUTINE, got {}".format(type(rou)))
+        self.current_rou = rou
+
     def push_func_to_stack(self, func):
+        """Given a MUMPS Function or Subroutine call, push the necessary
+        variables onto the next stack level at the correct name from the
+        tag's argument list."""
+        # Verify first that we got a function or subroutine call
+        if not isinstance(func, mumpy.MUMPSFuncSubCall):
+            raise TypeError(
+                "Expecting Function call, got {}".format(type(func)))
+
+        # Get the routine
+        rou = mumpy.MUMPSFile()
         pass
 
     def pop_func_from_stack(self):
