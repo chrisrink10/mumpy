@@ -10,7 +10,8 @@ from mumpy.compiler import MUMPSFile
 # noinspection PyMethodMayBeStatic
 class MUMPSParser:
     def __init__(self, env, interpreter=False, debug=False):
-        self.m = MUMPSLexer()
+        self.m = MUMPSLexer(is_rou=False if interpreter else True,
+                            debug=debug)
         self.tokens = self.m.tokens
         self.debug = debug
 
@@ -47,31 +48,42 @@ class MUMPSParser:
 
     def parse(self, data):
         """Parse an arbitrary line of MUMPS code."""
+        # Output the Lexer tokens
+        if self.debug:
+            self.m.test(data)
+
+        # Reset the Lexer and parse the data
+        self.m.reset()
         p = self.parser.parse(data)
+
+        # Execute the parsed command(s)
         try:
-            print(repr(p))
             p.execute()
         except Exception as e:
-            raise lang.MUMPSSyntaxError(str(e))
+            raise lang.MUMPSSyntaxError(e)
 
     def parse_file(self, f):
         """Parse a MUMPSFile."""
+        # Check that we got a compiled file
         if not isinstance(f, MUMPSFile):
             raise TypeError("Please specify a valid MUMPS routine.")
 
+        # Parse each line
         lines = f.lines()
         for line in lines:
+            self.m.reset()
             p = self.parser.parse(line)
             p.execute()
 
     def parse_xecute(self, expr, env):
         """Parse an expression for an XECUTE command."""
+        self.m.reset()
         p = self.parser.parse(expr)
         p.execute()
 
     def p_error(self, p):
-        if self.debug:
-            print(p)
+        if p is not None:
+            raise lang.MUMPSSyntaxError(str(p), err_type="PARSE ERROR")
 
     ###################
     # GENERIC INPUT
@@ -82,9 +94,11 @@ class MUMPSParser:
         p[0] = p[2]
 
     def p_input(self, p):
-        """valid_input : valid_input SPACE command
+        """valid_input : valid_input SPACE command SPACE
+                       | valid_input SPACE command
+                       | command SPACE
                        | command"""
-        if len(p) == 4:
+        if len(p) >= 4:
             p[0] = lang.MUMPSLine(p[3], p[1])
         else:
             p[0] = lang.MUMPSLine(p[1])
@@ -114,15 +128,16 @@ class MUMPSParser:
         p[0] = lang.MUMPSCommand(lang.new_var, p[3], self.env)
 
     def p_do_command(self, p):
-        """do_command : DO SPACE subroutine_call_tag
-                      | DO SPACE subroutine_call_no_tag
-                      | DO COLON expression SPACE subroutine_call_tag
-                      | DO COLON expression SPACE subroutine_call_no_tag"""
+        """do_command : DO SPACE subroutine_call_list
+                      | DO COLON expression SPACE subroutine_call_list"""
         if len(p) > 4:
-            if not p[3]:
-                return
+            post = p[3]
+            args = p[5]
         else:
-            pass
+            post = None
+            args = p[3]
+
+        p[0] = lang.MUMPSCommand(None, args, self.env, post=post)
 
     def p_if_command(self, p):
         """if_command : IF argument_list"""
@@ -252,30 +267,53 @@ class MUMPSParser:
     # COMMAND MISC
     ###################
     def p_routine_global(self, p):
-        """routine_global : CARET SYMBOL"""
-        pass
+        """routine_global : CARET identifier"""
+        p[0] = p[2]
+
+    def p_subroutine_call_list(self, p):
+        """subroutine_call_list : subroutine_call_list COMMA subroutine_call
+                                | subroutine_call"""
+        if len(p) == 4:
+            p[0] = lang.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = lang.MUMPSArgumentList(p[1])
 
     def p_subroutine_call(self, p):
+        """subroutine_call : subroutine_call_tag
+                           | subroutine_call_no_tag"""
+        p[0] = p[1]
+
+    def p_subroutine_call_tag(self, p):
         """subroutine_call_tag : identifier routine_global
-                               | identifier routine_global RPAREN func_sub_argument_list LPAREN"""
-        self.env.writeln("Subroutine call")
+                               | identifier routine_global LPAREN RPAREN
+                               | identifier routine_global LPAREN func_sub_argument_list RPAREN"""
+        args = p[4] if len(p) == 6 else None
+        p[0] = lang.MUMPSFuncSubCall(p[1], self.env, args=args,
+                                     as_func=False, rou=p[2])
 
     def p_subroutine_call_no_tag(self, p):
         """subroutine_call_no_tag : routine_global
-                                  | routine_global RPAREN func_sub_argument_list LPAREN"""
-        self.env.writeln("Subroutine call without tag")
+                                  | routine_global LPAREN RPAREN
+                                  | routine_global LPAREN func_sub_argument_list RPAREN"""
+        args = p[3] if len(p) == 5 else None
+        p[0] = lang.MUMPSFuncSubCall(p[1], self.env, args=args,
+                                     as_func=False, rou=p[1])
 
     def p_function_call(self, p):
         """function_call : EXTRINSIC identifier routine_global
-                         | EXTRINSIC identifier routine_global RPAREN LPAREN
-                         | EXTRINSIC identifier routine_global RPAREN func_sub_argument_list LPAREN"""
-        self.env.writeln("Function call")
+                         | EXTRINSIC identifier routine_global LPAREN RPAREN
+                         | EXTRINSIC identifier routine_global LPAREN func_sub_argument_list RPAREN"""
+        args = p[5] if len(p) == 7 else None
+        p[0] = lang.MUMPSFuncSubCall(p[2], self.env, args=args,
+                                     as_func=True, rou=p[3])
 
     def p_function_call_no_tag(self, p):
         """function_call : EXTRINSIC routine_global
-                         | EXTRINSIC routine_global RPAREN LPAREN
-                         | EXTRINSIC routine_global RPAREN func_sub_argument_list LPAREN"""
-        self.env.writeln("Function call without tag")
+                         | EXTRINSIC routine_global LPAREN RPAREN
+                         | EXTRINSIC routine_global LPAREN func_sub_argument_list RPAREN"""
+        args = p[4] if len(p) == 6 else None
+        p[0] = lang.MUMPSFuncSubCall(p[2], self.env, args=args,
+                                     as_func=True, rou=p[2])
 
     def p_func_sub_argument_list(self, p):
         """func_sub_argument_list : func_sub_argument_list COMMA func_sub_argument
@@ -392,7 +430,26 @@ class MUMPSParser:
     def p_identifier(self, p):
         """identifier : SYMBOL"""
         p[0] = lang.MUMPSIdentifier(p[1], self.env)
-        traceback.print_exc()
+
+    def p_tag(self, p):
+        """tag : identifier LPAREN tag_arguments RPAREN
+               | identifier LPAREN RPAREN
+               | identifier"""
+        l = len(p)
+        if l == 5:
+            pass
+        elif l == 4:
+            pass
+        else:
+            pass
+
+    def p_tag_arguments(self, p):
+        """tag_arguments : tag_arguments COMMA identifier
+                         | identifier"""
+        if len(p) == 4:
+            p[0] = lang.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = lang.MUMPSArgumentList(p[1])
 
     ###################
     # LOGIC

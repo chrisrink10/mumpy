@@ -5,6 +5,7 @@ interpreter can use."""
 __author__ = 'christopher'
 import importlib
 import os.path
+from mumpy.lang import MUMPSSyntaxError
 from mumpy.tokenizer import MUMPSLexer
 
 
@@ -19,6 +20,9 @@ class MUMPSFile:
         # Make sure we even got a string
         if not isinstance(rou, str):
             raise TypeError("Routine names must be a valid string.")
+
+        # Set up the Lexer
+        self.lex = MUMPSLexer(is_rou=True, debug=debug)
 
         # Get a few base items
         self.rou = os.path.basename(rou)
@@ -42,14 +46,16 @@ class MUMPSFile:
                                     "either a routine or an "
                                     "intermediate file.".format(rou),
                                     line=None,
-                                    errtype="INVALID FILE")
+                                    err_type="INVALID FILE")
 
     def _compile(self):
         """Compile a MUMPS routine into a MUMPy intermediate representation.
         Very little syntax checking is done by this stage of compilation."""
-        # Prepare the lexer
-        lex = MUMPSLexer()
+        lines, tags = self._read_rou()
+        self._write_int(tags, lines)
 
+    def _read_rou(self):
+        """Read in the Routine and return lines and tags."""
         # Set up some data structures that we'll use to represent a routine
         lines = []
         tags = {}
@@ -58,14 +64,16 @@ class MUMPSFile:
         with open(self.rou_path, mode='r', encoding='US-ASCII') as f:
             for i, line in enumerate(f):
                 # Lex the line
-                lex.lex(line)
+                try:
+                    tokens = self.lex.lex(line)
+                except MUMPSSyntaxError as e:
+                    raise MUMPSCompileError(e)
 
                 # MUMPS has specific rules about the first chars in a line
-                # Only tags (symbols) and spaces may appear in the first
-                # column of the Routine. Since tags can actually use the
-                # command keywords, we need to check for these tokens too.
-                symb = lex[0]
-                if symb.type == 'SYMBOL' or lex.symb_is_keyword(symb.value):
+                # The Lexer should throw Syntax errors if these rules are
+                # violated
+                symb = tokens[0]
+                if symb.type == 'SYMBOL':
                     # Routine names must match the first tag in the routine body
                     if len(tags) == 0 and symb.value != self.rou:
                         raise MUMPSCompileError("Routine name '{rou}' must "
@@ -73,16 +81,22 @@ class MUMPSFile:
                                                 "name.".format(rou=symb.value,
                                                                file=self.rou),
                                                 line=i+1,
-                                                errtype="ROUTINE NAME")
+                                                err_type="ROUTINE NAME")
 
                     # Check that we don't have duplicate tags
                     if symb.value in tags:
                         raise MUMPSCompileError("Tag names must be unique.",
                                                 line=i+1,
-                                                errtype="DUPLICATE TAG NAME")
+                                                err_type="DUPLICATE TAG NAME")
+
+                    # Build an argument list for the tag
+                    args = _build_arg_list(tokens)
 
                     # Build the tag index
-                    tags[symb.value] = i
+                    tags[symb.value] = {
+                        "line": i,
+                        "args": None if args is None else tuple(args),
+                    }
                 elif symb.type == 'SPACE':
                     # TODO: Remove comments from compiled code
                     # Since DO and GOTO tag calls can use line offsets
@@ -93,15 +107,14 @@ class MUMPSFile:
                     #except (KeyError, AttributeError):
                     #    pass
                     pass
-                else:
-                    raise MUMPSCompileError("Lines must start with a "
-                                            "space or a tag.",
-                                            line=i+1,
-                                            errtype="LINE START")
 
                 # And the list of lines
                 lines.append(_process_line(line))
 
+        return lines, tags
+
+    def _write_int(self, tags, lines):
+        """Write out the intermediate file."""
         # Output the intermediate representation
         with open(self.int_path, mode='w', encoding='UTF-8') as f:
             # Write out the header
@@ -116,8 +129,11 @@ class MUMPSFile:
 
             # Output the tag index
             f.write('tags = {\n')
-            for tag, line in tags.items():
-                f.write("    '{tag}': {line},\n".format(tag=tag, line=line))
+            for tag, data in tags.items():
+                f.write("    '{tag}': {{\n".format(tag=tag))
+                f.write("        'line': {line},\n".format(line=data['line']))
+                f.write("        'args': {args},\n".format(args=data['args']))
+                f.write("    },\n")
             f.write('}\n\n')
 
             # Output the line list
@@ -132,14 +148,15 @@ class MUMPSFile:
 
     def tags(self):
         """Return the dict of tags and their respective start lines."""
-        return self.inter.tags
+        return self.inter.tags.keys()
 
     def tag_line(self, tag):
         """Return the line that the specified tag starts at."""
-        return self.inter.tags[tag]
+        return self.inter.tags[tag]['line']
 
     def tag_body(self, tag):
         """Return the tag body of the given tag."""
+        #TODO: Figure out how to write this.
         return self.inter
 
     def lines(self):
@@ -149,6 +166,29 @@ class MUMPSFile:
     def line(self, ln):
         """Return the specified line."""
         return self.inter.lines[ln]
+
+
+def _build_arg_list(tokens):
+    """Given a list of Tokens for a line, return an argument list. A
+    tag with no arguments which includes parentheses should be returned
+    as an empty tuple. A tag with no arguments which does not have
+    parentheses will be returned as None."""
+    try:
+        # Check for an opening parenthesis;
+        if tokens[1].type != 'LPAREN':
+            return None
+
+        # If we got this far, we're assuming there are args
+        args = []
+        for arg in tokens[2:]:
+            if arg.type == 'RPAREN':
+                break
+            if arg.type == 'SYMBOL':
+                args.append(arg.value)
+    except KeyError:
+        return ()
+
+    return tuple(args)
 
 
 def _process_line(line):
@@ -164,14 +204,18 @@ def _process_line(line):
 
 class MUMPSCompileError(Exception):
     """Raised if there was an error compiling a routine to intermediate form."""
-    def __init__(self, msg, line=None, errtype=None):
-        self.msg = msg
-        self.line = line
-        self.errtype = "UNKNOWN" if errtype is None else errtype
+    def __init__(self, msg, line=None, err_type=None):
+        if isinstance(msg, MUMPSSyntaxError):
+            self.msg = msg.msg
+            self.err_type = msg.err_type
+        else:
+            self.msg = msg
+            self.line = line
+            self.err_type = "UNKNOWN" if err_type is None else err_type
 
     def __str__(self):
         return "COMPILE ERROR <{type}{line}>: {msg}".format(
-            type=self.errtype,
+            type=self.err_type,
             line="" if self.line is None else ":{num}".format(num=self.line),
             msg=self.msg
         )

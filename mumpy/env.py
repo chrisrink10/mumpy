@@ -1,11 +1,15 @@
-"""MUMPy environment"""
+"""MUMPy environment
+
+Provide environment stack management and other environment functions
+such as maintaining the current input and output devices."""
 __author__ = 'christopher'
 import sys
 
 
 class MUMPSEnvironment:
     """A MUMPy execution stack."""
-    def __init__(self, in_dev=sys.stdin, out_dev=sys.stdout):
+    def __init__(self, in_dev=sys.stdin,
+                 out_dev=sys.stdout, err_dev=sys.stderr):
         # Current stack level
         self.cur = 0
 
@@ -15,10 +19,20 @@ class MUMPSEnvironment:
         # Input and output devices in the environment
         self.in_dev = in_dev
         self.out_dev = out_dev
+        self.err_dev = err_dev
+
+        # Environment defaults
+        self.current_tag = None
 
     def __repr__(self):
         """String representation of this environment."""
         return "Environment()"
+
+    def push_func_to_stack(self, func):
+        pass
+
+    def pop_func_from_stack(self):
+        pass
 
     ###################
     # SYMBOL FUNCTIONS
@@ -74,9 +88,9 @@ class MUMPSEnvironment:
     def print(self):
         """Print the stack frames in reverse order."""
         for i in range(self.cur, -1, -1):
-            print("[Stack Frame {}]".format(i))
+            self.writeln("[Stack Frame {}]".format(i))
             for k, v in self.stack[i].items():
-                print("{key}={val}".format(key=k, val=v))
+                self.writeln("{key}={val}".format(key=k, val=v))
 
     ###################
     # OUTPUT FUNCTIONS
@@ -103,3 +117,11 @@ class MUMPSEnvironment:
     def writeln(self, data):
         """Write to the current output device; appends a newline to output."""
         self.out_dev.write("{data}\n".format(data=str(data)))
+
+    def write_error(self, data):
+        """Output to the current error device."""
+        self.err_dev.write(str(data))
+
+    def writeln_error(self, data):
+        """Output the current error device; appends a newline to output."""
+        self.err_dev.write("{data}\n".format(data=str(data)))

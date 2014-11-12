@@ -15,6 +15,11 @@ def new_var(args, env):
     return None
 
 
+def do_cmd(args, env):
+    """Perform a subroutine call."""
+    pass
+
+
 def halt(args, env):
     """Quit from the MUMPy environment."""
     raise SystemExit(0)
@@ -181,7 +186,38 @@ class MUMPSCommand:
 
 
 class MUMPSFuncSubCall:
-    pass
+    def __init__(self, tag, env, args=None, as_func=False, rou=None):
+        """Initialize a MUMPS Function or Subroutine call."""
+        # The tag should be a valid MUMPS Identifier
+        if not isinstance(tag, MUMPSIdentifier):
+            raise MUMPSSyntaxError("Invalid Function or Subroutine name given.",
+                                   err_type="INVALID FUNC OR SUB")
+
+        # Check that we got an actual argument list
+        if not isinstance(args, (type(None), MUMPSArgumentList)):
+            raise MUMPSSyntaxError("Functions and subroutines require a "
+                                   "valid argument list.",
+                                   err_type="INVALID ARGUMENTS")
+
+        # Check that we got a valid environment
+        if not isinstance(env, MUMPSEnvironment):
+            raise TypeError("A valid MUMPS environment must be specified.")
+
+        self.tag = tag
+        self.args = args
+        self.env = env
+        self.as_func = as_func
+        self.rou = rou
+
+    def __repr__(self):
+        return ("MUMPSFuncSubCall({tag}, {args}, {env}, "
+                "{as_func}, {rou})".format(
+                    tag=self.tag,
+                    args=self.args,
+                    env=self.env,
+                    as_func=self.as_func,
+                    rou=self.rou,
+                ))
 
 
 class MUMPSExpression:
@@ -439,7 +475,7 @@ class MUMPSSyntaxError(Exception):
             self.msg = err.msg
             self.err_type = err.err_type
         else:
-            self.msg = err
+            self.msg = str(err)
             self.err_type = "UNKNOWN" if err_type is None else err_type
 
     def __str__(self):

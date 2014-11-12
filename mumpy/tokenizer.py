@@ -1,4 +1,5 @@
 """MUMPy Tokenizer"""
+import traceback
 import ply.lex as lex
 from mumpy.lang import MUMPSSyntaxError
 
@@ -10,7 +11,7 @@ class MUMPSLexer:
     # LEXING STATES
     ###################
     states = (
-        ('command', 'exclusive')
+        ('command', 'exclusive'),
     )
 
     ###################
@@ -127,13 +128,13 @@ class MUMPSLexer:
     # Create a tuple of
     variable_tokens = tuple(set(variables.values()))
 
-    errors = (
-        'FN_DOES_NOT_EXIST',
-    )
-
     ###################
     # TOKEN LIST
     ###################
+    # List of failed token errors
+    errors = (
+        'FN_DOES_NOT_EXIST',
+    )
 
     # List of all valid tokens
     tokens = (
@@ -144,51 +145,50 @@ class MUMPSLexer:
         'LESS_THAN', 'AND', 'OR', 'COMMA',
         'CONCAT', 'NEWLINE', 'KEYWORD',
         'LPAREN', 'RPAREN', 'SPACE', 'CARET',
-        'DOUBLE_SPACE', 'COLON', 'EXTRINSIC',
-        'INTRINSIC', 'INDIRECTION', 'SORTS_AFTER',
+        'COLON', 'EXTRINSIC', 'INTRINSIC',
+        'INDIRECTION', 'SORTS_AFTER',
         'CONTAINS', 'FOLLOWS', 'PATTERN',
-        'PERIOD', 'SYMBOL'   # 'TAG_ROUTINE', 'ROUTINE_GLOBAL',
+        'PERIOD', 'SYMBOL'
     ) + keyword_tokens + intrinsic_tokens + variable_tokens + errors
 
     ###################
-    # GENERIC TOKEN RULES
+    # COMMAND STATE
+    #
+    # The command state is the state we enter after having processed
+    # any tag symbols, full-line comments, and command keywords.
+    # Essentially this is every other input we may receive.
     ###################
-    t_PLUS = r'\+'
-    t_MINUS = r'-'
-    t_TIMES = r'\*'
-    t_DIVIDE = r'\/'
-    t_IDIVIDE = r'\\'
-    t_EQUALS = r'='
-    t_EXPONENT = r'\*\*'
-    t_COMMENT = r';.*'
-    t_STRING = r'"(?:[^"]|"")*"'  # http://stackoverflow.com/questions/9981624/match-a-double-quoted-string-with-double-quote-inside
-    t_MODULUS = r'\#'
-    t_NOT = r'\''
-    t_GREATER_THAN = r'>'
-    t_LESS_THAN = r'<'
-    t_AND = r'&'
-    t_OR = r'!'
-    t_COMMA = r','
-    t_CONCAT = r'_'
-    #t_TAG_ROUTINE = r'[%a-zA-Z0-9]+\^[%a-zA-Z]+[%a-zA-Z0-9]*'
-    #t_ROUTINE_GLOBAL = r'\^[%a-zA-Z]+[%a-zA-Z0-9]*'
-    t_CARET = r'\^'
-    t_LPAREN = r'\('
-    t_RPAREN = r'\)'
-    t_SPACE = r'[ ]{1}'
-    t_COLON = r':'
-    t_EXTRINSIC = r'\$\$'
-    t_INDIRECTION = r'@'
-    t_SORTS_AFTER = r'\]{2}'
-    t_FOLLOWS = r'\]{1}'
-    t_CONTAINS = r'\[{1}'
-    t_PATTERN = r'\?'
-    t_PERIOD = r'\.'
-    t_NEWLINE = r'\n'
-    #t_SYMBOL = r'([%a-zA-Z]+[%a-zA-Z0-9]*)'
+    t_command_PLUS = r'\+'
+    t_command_MINUS = r'-'
+    t_command_TIMES = r'\*'
+    t_command_DIVIDE = r'\/'
+    t_command_IDIVIDE = r'\\'
+    t_command_EQUALS = r'='
+    t_command_EXPONENT = r'\*\*'
+    t_command_MODULUS = r'\#'
+    t_command_NOT = r'\''
+    t_command_GREATER_THAN = r'>'
+    t_command_LESS_THAN = r'<'
+    t_command_AND = r'&'
+    t_command_OR = r'!'
+    t_command_COMMA = r','
+    t_command_CONCAT = r'_'
+    t_command_CARET = r'\^'
+    t_command_LPAREN = r'\('
+    t_command_RPAREN = r'\)'
+    t_command_COLON = r':'
+    t_command_EXTRINSIC = r'\$\$'
+    t_command_INDIRECTION = r'@'
+    t_command_SORTS_AFTER = r'\]{2}'
+    t_command_FOLLOWS = r'\]{1}'
+    t_command_CONTAINS = r'\[{1}'
+    t_command_PATTERN = r'\?'
+    t_command_PERIOD = r'\.'
+    t_command_NEWLINE = r'\n'
 
     @lex.TOKEN(r'(\d+(\.\d+)?|(\.\d+))')
-    def t_NUMBER(self, t):
+    def t_command_NUMBER(self, t):
+        """Match a NUMBER token in command mode."""
         if float(t.value).is_integer():
             t.value = int(t.value)
         else:
@@ -196,33 +196,153 @@ class MUMPSLexer:
         return t
 
     @lex.TOKEN(r'([%a-zA-Z]+[%a-zA-Z0-9]*)')
-    def t_SYMBOL(self, t):
+    def t_command_SYMBOL(self, t):
+        """Match a SYMBOL token in command mode."""
         kw = str(t.value).strip()
-        t.type = self.keywords.get(kw, 'SYMBOL')
         t.value = kw
         return t
 
-    @lex.TOKEN(r'\$[a-zA-Z]+')
-    def t_INTRINSIC(self, t):
-        t.type = self.intrinsics.get(str(t.value).lower(),
-                                     'FN_DOES_NOT_EXIST')
+    @lex.TOKEN(r'"(?:[^"]|"")*"')
+    def t_command_STRING(self, t):
+        """This simple rule is defined as a function so it is evaluated at
+        a higher level than the SPACE token, which would otherwise cause
+        problems with Lexer state.
+
+        See this StackOverflow post for information on this RegEx:
+        http://stackoverflow.com/questions/9981624/match-a-double-quoted-string\
+        -with-double-quote-inside"""
         return t
+
+    @lex.TOKEN(r'[ ]{1}')
+    def t_command_SPACE(self, t):
+        """Match SPACE tokens in the command mode. Note that a new command
+        should happen after exactly two spaces in all cases. Argument-less
+        commands have two spaces and commands with arguments are followed
+        by a single space."""
+        # New commands always occur after two spaces
+        self.command['spaces'] += 1
+        if self.command['spaces'] >= 2:
+            self.command['spaces'] = 0
+            self.lexer.begin('INITIAL')
+            #print("t_command_SPACE: beginning initial state")
+        t.type = 'SPACE'
+        return t
+
+    @lex.TOKEN(r'\$[a-zA-Z]+')
+    def t_command_INTRINSIC(self, t):
+        """Match INTRINSIC function tokens in command mode."""
+        t.type = self.intrinsics.get(str(t.value).lower(), 'FN_DOES_NOT_EXIST')
+        return t
+
+    @lex.TOKEN(r';.*')
+    def t_command_COMMENT(self, t):
+        """Match COMMENT tokens and ignore them."""
+        pass
+
+    def t_command_error(self, t):
+        """Lexer generic error function."""
+        raise MUMPSSyntaxError("Error in command state: {err}".format(
+            err=t.value), err_type="LEX ERROR")
+
+    ###################
+    # INITIAL STATE
+    #
+    # In the initial state, we are either handling a routine or are
+    # handling user input from the REPL interpreter.
+    #
+    # For routines, we're looking for one of the patterns here:
+    # |ROUTINENAME          <- Routine or Tag name
+    # |TagName(symb,symb)   <- Routine or Tag name with Parens and Arguments
+    # | cmd                 <- Space followed by Command keyword
+    # | ;                   <- Space followed by COMMENT token
+    # | .                   <- Space followed by Period (increased stack)
+    #
+    # For REPL input, we're looking for this pattern:
+    # |cmd                  <- Command keyword
+    ###################
+    @lex.TOKEN(r'([%a-zA-Z]+[%a-zA-Z0-9]*)')
+    def t_KEYWORD(self, t):
+        """Match a SYMBOL token if we are Lexing a routine and we have not
+        passed any spaces. Otherwise, we we will check that our token is
+        a valid command keyword. Failure to match on a valid command will
+        result in a Syntax error."""
+        if self.is_rou and self.initial['spaces'] == 0:
+            t.type = 'SYMBOL'
+        else:
+            kw = str(t.value).strip()
+            try:
+                t.type = self.keywords[kw]
+                t.value = kw
+                self.lexer.begin('command')
+                #print("t_KEYWORD: beginning command state")
+            except KeyError:
+                raise MUMPSSyntaxError("Expected COMMAND, got {symb}.".format(
+                    symb=kw), err_type="INVALID COMMAND")
+        return t
+
+    @lex.TOKEN(r'[ ]{1}')
+    def t_SPACE(self, t):
+        """Match a SPACE token in the INITIAL state."""
+        # New commands always occur after two spaces
+        self.initial['spaces'] += 1
+        if self.initial['spaces'] == 1:
+            self.initial['spaces'] = 0
+            self.lexer.begin('command')
+        t.type = 'SPACE'
+        return t
+
+    @lex.TOKEN(r';.*')
+    def t_COMMENT(self, t):
+        """Match COMMENT tokens and ignore them."""
+        pass
+
+    # We need to be able to handle argument lists and newlines
+    t_COMMA = r','
+    t_LPAREN = r'\('
+    t_RPAREN = r'\)'
+    t_NEWLINE = r'\n'
 
     def t_error(self, t):
         """Lexer generic error function."""
-        print("Error occurred lexing: {}".format(t.value))
+        # At Lexer position 0, we expect to see a Tag/Routine name
+        if t.lexpos == 0:
+            raise MUMPSSyntaxError("Expected SYMBOL or SPACE, got {}.".format(
+                t.value), err_type="INVALID TAG")
+
+        # Otherwise, raise a generic error
+        raise MUMPSSyntaxError("No '{err}' command found".format(
+            err=t.value), err_type="LEX ERROR")
+
+    ###################
+    # CLASS METHODS
+    ###################
+    def __init__(self, is_rou=True, **kwargs):
+        """Create a new Lexer."""
+        self.lexer = lex.lex(module=self, **kwargs)
+        self.line_tokens = []       # self.tokens is used by lex.lex
+        self.is_rou = is_rou
+
+        # Lexer state variables
+        self.command = {'spaces': 0}
+        self.initial = {'spaces': 0}
+        self.reset()
+
+    def __repr__(self):
+        return "MUMPSLexer()"
+
+    def reset(self):
+        """Reset the Lexer to the default state."""
+        self.lexer.begin('INITIAL')
+        self.command = {'spaces': 0}
+        self.initial = {'spaces': 0}
 
     def symb_is_keyword(self, symb):
         """Returns True if the given symbol is also a valid keyword."""
         return symb.lower() in self.keywords
 
-    def __init__(self, **kwargs):
-        """Create a new Lexer."""
-        self.lexer = lex.lex(module=self, **kwargs)
-        self.line_tokens = []       # self.tokens is used by lex.lex
-
     def test(self, data):
         """Output each token in the given input data."""
+        self.reset()
         self.lexer.input(data)
         for tok in self.lexer:
             if not tok:
@@ -231,10 +351,13 @@ class MUMPSLexer:
 
     def lex(self, data):
         """Lex a line of input."""
+        self.reset()
         self.lexer.input(data)
         self.line_tokens = []
         for tok in self.lexer:
             self.line_tokens.append(tok)
+
+        return self.line_tokens
 
     def __iter__(self):
         """Allow clients to iterate on the current list of Tokens (if

@@ -16,8 +16,6 @@ def start_repl(debug=False):
         # Accept user input
         while True:
             current_line = input("mumpy > ")
-            if debug:
-                p.m.test(current_line)
 
             # Catch any Syntax errors from the user input
             try:
@@ -36,7 +34,7 @@ def compile_routine(files, debug=False):
     for file in files:
         print("Compiling {file}...".format(file=file))
         try:
-            intf.append(MUMPSFile(rou=file, debug=debug))
+            intf.append(MUMPSFile(rou=file, debug=debug, recompile=True))
             print("Success!")
         except MUMPSCompileError as e:
             print(e)
@@ -58,7 +56,7 @@ def interpret(file, recompile=False, debug=False):
 
     # Prepare the environment and parser
     env = MUMPSEnvironment()
-    p = MUMPSParser(env, interpreter=True, debug=debug)
+    p = MUMPSParser(env, interpreter=False, debug=debug)
 
     # Parse the file
     p.parse_file(f)
