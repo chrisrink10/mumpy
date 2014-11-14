@@ -2,6 +2,7 @@
 __author__ = 'christopher'
 import string
 import time
+import traceback
 import mumpy
 
 
@@ -18,8 +19,8 @@ def new_var(args, env):
 def do_cmd(args, env):
     """Perform a subroutine call."""
     for sub in args:
-        env.push_func_to_stack(sub)
         sub.execute()
+    return None
 
 
 def halt(args, env):
@@ -59,11 +60,17 @@ def kill_all(args, env):
 
 def quit_cmd(args, env):
     """Quit from the current scope."""
+    # Quits from a DO block should have no argument
     if args is None:
-        pass
-    else:
-        pass
-    return None
+        return None
+
+    # Check for multiple quit arguments
+    if len(args) > 1:
+        raise MUMPSSyntaxError("QUIT commands cannot have multiple arguments",
+                               err_type="INVALID ARGUMENTS")
+
+    # Return the evaluated expression otherwise
+    return str(args[0])
 
 
 def read(args, env):
@@ -113,7 +120,7 @@ class MUMPSLine:
     """Represent a full line of MUMPS code."""
     def __init__(self, cmd, other=None):
         """Initialize the line"""
-        if isinstance(other, MUMPSLine):
+        if isinstance(other, (MUMPSLine, MUMPSEmptyLine)):
             self.list = other.list
             self.list.append(cmd)
         else:
@@ -129,12 +136,32 @@ class MUMPSLine:
         """Execute the entire line of commands."""
         last = True
         for cmd in self.list:
+            # If the last command returned an expression, we're done
+            if isinstance(last, MUMPSExpression):
+                break
+
             # If the last command returned False, quit
             if last is not None and not last:
-                return
+                last = None
+                break
 
             # Execute the next command and get it's return value
             last = cmd.execute()
+
+        return last
+
+
+class MUMPSEmptyLine:
+    """Represents a no-op line in MUMPS."""
+    def __init__(self, data, **kwargs):
+        self.data = data
+
+    def __repr__(self):
+        return "MUMPSEmptyLine({data})".format(data=self.data)
+
+    def execute(self):
+        """Do absolutely nothing."""
+        pass
 
 
 class MUMPSCommand:
@@ -188,7 +215,7 @@ class MUMPSCommand:
 
 
 class MUMPSFuncSubCall:
-    def __init__(self, tag, env, args=None, is_func=False, rou=None):
+    def __init__(self, tag, env, parser, args=None, is_func=False, rou=None):
         """Initialize a MUMPS Function or Subroutine call."""
         # The tag should be a valid MUMPS Identifier
         if not isinstance(tag, MUMPSIdentifier):
@@ -205,11 +232,20 @@ class MUMPSFuncSubCall:
         if not isinstance(env, mumpy.MUMPSEnvironment):
             raise TypeError("A valid MUMPS environment must be specified.")
 
+        # ...and parser
+        if not isinstance(parser, mumpy.MUMPSParser):
+            raise TypeError("A valid MUMPS parser must be specified.")
+
         self.tag = tag
         self.args = args
         self.env = env
-        self.as_func = is_func
-        self.rou = rou
+        self.parser = parser
+        self.is_func = is_func
+        self.rou = self.env.get_routine(rou)
+
+        # If we don't have a routine at this point, we're in an error state
+        if self.rou is None:
+            raise MUMPSSyntaxError("No routine found.", err_type="NO LINE")
 
     def __repr__(self):
         return ("MUMPSFuncSubCall({tag}, {args}, {env}, "
@@ -222,7 +258,22 @@ class MUMPSFuncSubCall:
                 ))
 
     def execute(self):
-        pass
+        """Execute the subroutine or function call."""
+        # Execute the function or subroutine
+        self.env.push_func_to_stack(self)
+        p = self.parser.parse_file(self.rou, tag=self.tag)
+        self.env.pop_func_from_stack()
+
+        # Check for syntax errors
+        if self.is_func and p is None:
+            raise MUMPSSyntaxError("Function call did not return value.",
+                                   err_type="FUNCTION NO RETURN")
+        if not self.is_func and p is not None:
+            raise MUMPSSyntaxError("Subroutine call returned a value.",
+                                   err_type="SUBROUTINE RETURN")
+
+        # Return our value
+        return p
 
 
 class MUMPSExpression:
@@ -234,6 +285,8 @@ class MUMPSExpression:
             self.expr = expr.expr
         elif isinstance(expr, MUMPSIdentifier):
             self.expr = expr
+        elif isinstance(expr, MUMPSFuncSubCall):
+            self.expr = expr.execute()
         elif expr is None:
             self.expr = ""
         else:
@@ -362,14 +415,14 @@ class MUMPSExpression:
 
     def concat(self, other):
         """Concatenates two MUMPS values together and returns itself.."""
-        self.expr = "{}{}".format(self.expr, str(MUMPSExpression(other)))
+        self.expr = "{}{}".format(str(self), str(MUMPSExpression(other)))
         return self
 
     def sorts_after(self, other):
         """Return True if this MUMPS expression sorts after other in
         collation (UTF-8) order."""
         o = MUMPSExpression(other)
-        s = str(self.expr)
+        s = str(self)
         l = sorted([s, str(o)])
         self.expr = 1 if (s == l[1]) else 0
         return self
@@ -378,16 +431,21 @@ class MUMPSExpression:
         """Return True if this MUMPS expression follows other in
         binary order."""
         o = MUMPSExpression(other)
-        b = bytes(self.expr)
-        l = sorted([b, bytes(str(o))])
+        b = bytes(str(self), encoding='utf8')
+        l = sorted([b, bytes(str(o), encoding='utf8')])
         self.expr = 1 if (b == l[1]) else 0
         return self
 
     def contains(self, other):
         self.expr = 0 if (
-            str(self.expr).find(str(MUMPSExpression(other))) == -1
+            str(self).find(str(MUMPSExpression(other))) == -1
         ) else 1
         return self
+
+
+def mumps_null():
+    """Return the MUMPS null value, ""."""
+    return MUMPSExpression(None)
 
 
 class MUMPSIdentifier:
@@ -482,6 +540,11 @@ class MUMPSSyntaxError(Exception):
         else:
             self.msg = str(err)
             self.err_type = "UNKNOWN" if err_type is None else err_type
+            #TODO: Remove this print_exc call
+            try:
+                traceback.print_exc()
+            except:
+                pass
 
     def __str__(self):
         return "SYNTAX ERROR <{type}>: {msg}".format(
@@ -497,6 +560,14 @@ def _mumps_number(v):
     """Given a number (perhaps evaluated by expression), return the
     integral value if it is an integer, or a float otherwise."""
     try:
+        return _to_mumps_number(v)
+    except ValueError:
+        return 0
+
+
+def _to_mumps_number(v):
+    """Given a value, attempt to coerce it to either an integer or float."""
+    try:
         tmp = float(v)
 
         if tmp.is_integer():
@@ -504,7 +575,13 @@ def _mumps_number(v):
         else:
             return tmp
     except ValueError:
-        return 0
+        v = str(v)
+        n = []
+        for c in v:
+            if c.isnumeric() or c == ".":
+                n.append(c)
+        n = "".join(n)
+        return float(n) if '.' in n else int(n)
 
 
 def _other_as_number(other):

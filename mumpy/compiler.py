@@ -16,6 +16,9 @@ class MUMPSFile:
         the user did not specify to recompile, we'll use that. Otherwise, we
         will search for the base routine file and compile that to the
         intermediate representation."""
+        # Convert identifiers to strings
+        rou = str(rou) if isinstance(rou, mumpy.MUMPSIdentifier) else rou
+
         # Make sure we even got a string
         if not isinstance(rou, str):
             raise TypeError("Routine names must be a valid string.")
@@ -46,6 +49,9 @@ class MUMPSFile:
                                     "intermediate file.".format(rou),
                                     line=None,
                                     err_type="INVALID FILE")
+
+    def __repr__(self):
+        return "MUMPSFile(^{rou}, {path})".format(rou=self.rou, path=self.path)
 
     def _compile(self):
         """Compile a MUMPS routine into a MUMPy intermediate representation.
@@ -151,12 +157,20 @@ class MUMPSFile:
 
     def tag_line(self, tag):
         """Return the line that the specified tag starts at."""
-        return self.inter.tags[tag]['line']
+        return self.inter.tags[str(tag)]['line']
+
+    def tag_args(self, tag):
+        """Return the argument list for the specified tag."""
+        return self.inter.tags[str(tag)]['args']
 
     def tag_body(self, tag):
         """Return the tag body of the given tag."""
-        #TODO: Figure out how to write this.
-        return self.inter
+        lntag = sorted([v['line'] for _, v in self.inter.tags.items()])
+        start = lntag.index(self.inter.tags[str(tag)]['line'])
+        try:
+            return self.inter.lines[lntag[start]:lntag[start+1]]
+        except IndexError:
+            return self.inter.lines[lntag[start]:]
 
     def lines(self):
         """Return the list of routine lines."""

@@ -178,7 +178,6 @@ class MUMPSLexer:
     t_command_COLON = r':'
     t_command_EXTRINSIC = r'\$\$'
     t_command_INDIRECTION = r'@'
-    t_command_SORTS_AFTER = r'\]{2}'
     t_command_FOLLOWS = r'\]{1}'
     t_command_CONTAINS = r'\[{1}'
     t_command_PATTERN = r'\?'
@@ -236,7 +235,7 @@ class MUMPSLexer:
     @lex.TOKEN(r';.*')
     def t_command_COMMENT(self, t):
         """Match COMMENT tokens and ignore them."""
-        pass
+        return t
 
     def t_command_error(self, t):
         """Lexer generic error function."""
@@ -268,7 +267,7 @@ class MUMPSLexer:
         if self.is_rou and self.initial['spaces'] == 0:
             t.type = 'SYMBOL'
         else:
-            kw = str(t.value).strip()
+            kw = str(t.value).strip().lower()
             try:
                 t.type = self.keywords[kw]
                 t.value = kw
@@ -282,25 +281,25 @@ class MUMPSLexer:
 
     @lex.TOKEN(r'[ ]{1}')
     def t_SPACE(self, t):
-        """Match a SPACE token in the INITIAL state."""
-        # New commands always occur after two spaces
+        """Match a SPACE token in the INITIAL state.
+
+        If we are in a routine, then we need to enter the command state after
+        two spaces. In the interpreter loop, we should enter the command
+        state after only the first space."""
         self.initial['spaces'] += 1
-        if self.initial['spaces'] == 1:
+        if ((not self.is_rou and self.initial['spaces'] == 1) or
+                (self.is_rou and self.initial['spaces'] == 2)):
             self.initial['spaces'] = 0
             self.lexer.begin('command')
         t.type = 'SPACE'
         return t
-
-    @lex.TOKEN(r';.*')
-    def t_COMMENT(self, t):
-        """Match COMMENT tokens and ignore them."""
-        pass
 
     # We need to be able to handle argument lists and newlines
     t_COMMA = r','
     t_LPAREN = r'\('
     t_RPAREN = r'\)'
     t_NEWLINE = r'\n'
+    t_COMMENT = r';.*'
 
     def t_error(self, t):
         """Lexer generic error function."""

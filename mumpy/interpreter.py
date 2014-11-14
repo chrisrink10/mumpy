@@ -16,7 +16,7 @@ def start_repl(debug=False):
 
             # Catch any Syntax errors from the user input
             try:
-                p.parse(current_line)
+                p.parse_repl(current_line)
             except mumpy.MUMPSSyntaxError as e:
                 print(e)
     except KeyboardInterrupt:

@@ -11,10 +11,8 @@ class MUMPSEnvironment:
     """A MUMPy execution stack."""
     def __init__(self, in_dev=sys.stdin,
                  out_dev=sys.stdout, err_dev=sys.stderr):
-        # Current stack level
+        # Current stack level and variable stack
         self.cur = 0
-
-        # Stack
         self.stack = [{}]
 
         # Input and output devices in the environment
@@ -22,28 +20,44 @@ class MUMPSEnvironment:
         self.out_dev = out_dev
         self.err_dev = err_dev
 
-        # Environment defaults
-        self.current_tag = None
-        self.current_rou = None
+        # Function and subroutine call stack
+        self.call_stack = []
+
+        # Already opened routines
+        self.routines = {}
 
     def __repr__(self):
         """String representation of this environment."""
-        return "Environment()"
+        return "Environment({lvl}, {rou})".format(
+            lvl=self.cur,
+            rou=self.get_current_rou(),
+        )
 
-    def set_current_tag(self, tag, rou=None):
-        """Set the currently executing tag in the environment. If rou is
-        not specified, the current routine is assumed."""
-        if not isinstance(tag, str):
-            raise TypeError("Expecting TAG, got {}".format(type(tag)))
-        self.current_tag = tag
-        if rou is not None:
-            self.set_current_rou(rou)
+    def get_routine(self, rou):
+        """Query the environment for a routine. The environment keeps a
+        cache of previously accessed routines so they can be accessed
+        more quickly in the future."""
+        # If the routine is None, then return the current routine
+        if rou is None:
+            return self.get_current_rou()
 
-    def set_current_rou(self, rou):
-        """Set the current routine in the environment."""
-        if not isinstance(rou, mumpy.MUMPSFile):
-            raise TypeError("Expecting ROUTINE, got {}".format(type(rou)))
-        self.current_rou = rou
+        # Check the cache first
+        if rou in self.routines:
+            return self.routines[rou]
+
+        # Try to load the routine now
+        try:
+            f = mumpy.MUMPSFile(rou)
+            self.routines[rou] = f
+            return f
+        except mumpy.MUMPSCompileError as e:
+            raise mumpy.MUMPSSyntaxError(e, err_type="NO LINE")
+
+    def get_current_rou(self):
+        """Return the current environment routine."""
+        if len(self.call_stack) > 0:
+            return self.call_stack[self.cur-1][1]
+        return None
 
     def push_func_to_stack(self, func):
         """Given a MUMPS Function or Subroutine call, push the necessary
@@ -54,12 +68,37 @@ class MUMPSEnvironment:
             raise TypeError(
                 "Expecting Function call, got {}".format(type(func)))
 
-        # Get the routine
-        rou = mumpy.MUMPSFile()
-        pass
+        # Push a new stack frame
+        self.push()
+        self.call_stack.append((func.tag, func.rou))
+
+        # Get the argument list and push existing values onto the new frame
+        args = func.rou.tag_args(func.tag)
+        for i, arg in enumerate(args):
+            # Convert the tag argument name to an identifier
+            # This is the new name of the symbol on the current stack frame
+            ident = mumpy.MUMPSIdentifier(arg, self)
+
+            # Try to get the matching value from the input list
+            # If we can't find it, that's fine; MUMPS functions do not
+            # require any or all parameters to be input - just set it null.
+            #
+            # Check for TypeError in case the argument list is None.
+            try:
+                in_arg = str(mumpy.MUMPSExpression(func.args[i]))
+            except (IndexError, TypeError):
+                in_arg = mumpy.mumps_null()
+
+            # New the argument list name
+            self.new(ident)
+
+            # Set the new value
+            self.set(ident, str(in_arg))
 
     def pop_func_from_stack(self):
-        pass
+        """Return execution to the original function or subroutine."""
+        self.pop()
+        self.call_stack.pop()
 
     ###################
     # SYMBOL FUNCTIONS
@@ -67,19 +106,19 @@ class MUMPSEnvironment:
     def get(self, key):
         """Return the item named at the current stack level or fall down
         the stack until we find an item with that name."""
-        for i in range(self.cur, -1, -1):
-            if key in self.stack[i]:
-                return self.stack[i][key]
+        for frame in reversed(self.stack):
+            if key in frame:
+                return frame[key]
 
-        return None
+        return mumpy.mumps_null()
 
     def set(self, key, value):
         """Set the item with the given name at the highest stack level
         we can find it at. If it does not exist at any stack level,
         set it at the current stack level."""
-        for i in range(self.cur, -1, -1):
-            if key in self.stack[i]:
-                self.stack[i][key] = value
+        for frame in reversed(self.stack):
+            if key in frame:
+                frame[key] = value
                 return
         self.stack[self.cur][key] = value
 
@@ -87,20 +126,20 @@ class MUMPSEnvironment:
         """Create a new symbol with the given name on the current stack
         level with a None value."""
         if not key in self.stack[self.cur]:
-            self.stack[self.cur][key] = None
+            self.stack[self.cur][key] = mumpy.mumps_null()
 
     def kill(self, key):
         """Kill a symbol with the given key at the highest stack level we
         can find it at. If that symbol doesn't exist, do nothing."""
-        for i in range(self.cur, -1, -1):
-            if key in self.stack[i]:
-                del self.stack[i][key]
+        for frame in reversed(self.stack):
+            if key in frame:
+                del frame[key]
                 return
 
     def kill_all(self):
         """Clears the entire symbol table (all the way down the stack)."""
-        for i in range(self.cur, -1, -1):
-            self.stack[i].clear()
+        for frame in reversed(self.stack):
+            frame.clear()
 
     def push(self):
         """Push a new frame onto the stack."""
@@ -152,3 +191,12 @@ class MUMPSEnvironment:
     def writeln_error(self, data):
         """Output the current error device; appends a newline to output."""
         self.err_dev.write("{data}\n".format(data=str(data)))
+
+    def write_stack(self):
+        """Output a stack trace to the current error device."""
+        for i, frame in enumerate(self.call_stack):
+            self.writeln_error("{i} :: {tag}^{rou}".format(
+                i=i,
+                tag=frame[0],
+                rou=frame[1].name(),
+            ))
