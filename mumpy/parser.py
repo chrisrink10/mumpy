@@ -1,5 +1,6 @@
 """MUMPy Parser"""
 import logging
+import random
 import ply.yacc as yacc
 import mumpy
 import mumpy.lang as lang
@@ -351,7 +352,13 @@ class MUMPSParser:
         """subroutine_call_tag : identifier routine_global
                                | identifier routine_global LPAREN RPAREN
                                | identifier routine_global LPAREN func_sub_argument_list RPAREN"""
-        args = p[4] if len(p) == 6 else None
+        l = len(p)
+        if l == 6:
+            args = p[4]
+        elif l == 5:
+            args = ()
+        else:
+            args = None
         p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, self, args=args,
                                       is_func=False, rou=p[2])
 
@@ -359,7 +366,13 @@ class MUMPSParser:
         """subroutine_call_no_tag : routine_global
                                   | routine_global LPAREN RPAREN
                                   | routine_global LPAREN func_sub_argument_list RPAREN"""
-        args = p[3] if len(p) == 5 else None
+        l = len(p)
+        if l == 5:
+            args = p[3]
+        elif l == 4:
+            args = ()
+        else:
+            args = None
         p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, self, args=args,
                                       is_func=False, rou=p[1])
 
@@ -367,7 +380,13 @@ class MUMPSParser:
         """subroutine_call_no_rou : identifier
                                   | identifier LPAREN RPAREN
                                   | identifier LPAREN func_sub_argument_list RPAREN"""
-        args = p[3] if len(p) == 5 else None
+        l = len(p)
+        if l == 5:
+            args = p[3]
+        elif l == 4:
+            args = ()
+        else:
+            args = None
         p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, self, args=args,
                                       is_func=False)
 
@@ -381,7 +400,13 @@ class MUMPSParser:
         """function_call_tag : EXTRINSIC identifier routine_global
                              | EXTRINSIC identifier routine_global LPAREN RPAREN
                              | EXTRINSIC identifier routine_global LPAREN func_sub_argument_list RPAREN"""
-        args = p[5] if len(p) == 7 else None
+        l = len(p)
+        if l == 7:
+            args = p[5]
+        elif l == 6:
+            args = ()
+        else:
+            args = None
         p[0] = mumpy.MUMPSFuncSubCall(p[2], self.env, self, args=args,
                                       is_func=True, rou=p[3])
 
@@ -389,7 +414,13 @@ class MUMPSParser:
         """function_call_no_tag : EXTRINSIC routine_global
                                 | EXTRINSIC routine_global LPAREN RPAREN
                                 | EXTRINSIC routine_global LPAREN func_sub_argument_list RPAREN"""
-        args = p[4] if len(p) == 6 else None
+        l = len(p)
+        if l == 6:
+            args = p[4]
+        elif l == 5:
+            args = ()
+        else:
+            args = None
         p[0] = mumpy.MUMPSFuncSubCall(p[2], self.env, self, args=args,
                                       is_func=True, rou=p[2])
 
@@ -397,7 +428,13 @@ class MUMPSParser:
         """function_call_no_rou : EXTRINSIC identifier
                                 | EXTRINSIC identifier LPAREN RPAREN
                                 | EXTRINSIC identifier LPAREN func_sub_argument_list RPAREN"""
-        args = p[4] if len(p) == 6 else None
+        l = len(p)
+        if l == 6:
+            args = p[4]
+        elif l == 5:
+            args = ()
+        else:
+            args = None
         p[0] = mumpy.MUMPSFuncSubCall(p[2], self.env, self, args=args,
                                       is_func=True)
 
@@ -433,6 +470,18 @@ class MUMPSParser:
             p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
         else:
             p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_sel_argument_list(self, p):
+        """sel_argument_list : sel_argument_list COMMA sel_argument
+                             | sel_argument"""
+        if len(p) == 4:
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_sel_argument(self, p):
+        """sel_argument : expression COLON expression"""
+        p[0] = (p[1], p[3])
 
     def p_assignment(self, p):
         """assignment : identifier EQUALS expression"""
@@ -473,7 +522,8 @@ class MUMPSParser:
                       | numeric_op
                       | expression_parens
                       | identifier
-                      | function_call"""
+                      | function_call
+                      | intrinsic_func"""
         p[0] = mumpy.MUMPSExpression(p[1])
 
     def p_expression_parens(self, p):
@@ -526,6 +576,121 @@ class MUMPSParser:
             ident=p[1],
             #args=p[3] if len(p) == 5 else ""
         ))
+
+    ###################
+    # INTRINSICS
+    ###################
+    def p_intrinsic_func(self, p):
+        """intrinsic_func : ascii_func
+                          | char_func
+                          | extract_func
+                          | name_func
+                          | length_func
+                          | piece_func
+                          | random_func
+                          | select_func
+                          | intrinsic_not_exist"""
+        p[0] = p[1]
+
+    def p_instrinsic_dne(self, p):
+        """intrinsic_not_exist : FN_DOES_NOT_EXIST error"""
+        raise mumpy.MUMPSSyntaxError("Function does not exist.",
+                                     err_type="FN DOES NOT EXIST")
+
+    def p_ascii(self, p):
+        """ascii_func : ASCII LPAREN expression COMMA expression RPAREN
+                      | ASCII LPAREN expression RPAREN"""
+        pnum = int(p[5].as_number()) if len(p) == 7 else 1
+        try:
+            if pnum-1 >= 0:
+                char = ord(str(p[3])[pnum-1])
+            else:
+                raise IndexError
+        except IndexError:
+            char = mumpy.MUMPSExpression(-1)
+        p[0] = mumpy.MUMPSExpression(char)
+
+    def p_char(self, p):
+        """char_func : CHAR LPAREN argument_list RPAREN"""
+        chars = []
+        for arg in p[3]:
+            chars.append(chr(arg.as_number()))
+        p[0] = mumpy.MUMPSExpression(''.join(chars))
+
+    def p_extract(self, p):
+        """extract_func : EXTRACT LPAREN expression COMMA expression COMMA expression RPAREN
+                        | EXTRACT LPAREN expression COMMA expression RPAREN
+                        | EXTRACT LPAREN expression RPAREN"""
+        l = len(p)
+        try:
+            if l == 9:
+                # Get the indices
+                slen = len(str(p[3]))
+                low = p[5].as_number()-1
+                high = p[7].as_number()         # High index is inclusive
+
+                # The low index cannot be higher than the high index
+                # The low index cannot be below 0 either
+                if low > high or low < 0:
+                    raise IndexError
+
+                # The length cannot exceed the string length
+                if high > slen:
+                    high = slen
+
+                p[0] = mumpy.MUMPSExpression(str(p[3])[low:high])
+            elif l == 7:
+                # Get the index
+                idx = p[5].as_number()-1
+
+                # The low index cannot be below 0
+                if idx < 0:
+                    raise IndexError
+
+                p[0] = mumpy.MUMPSExpression(str(p[3])[idx])
+            else:
+                p[0] = mumpy.MUMPSExpression(str(p[3])[0])
+        except IndexError:
+            p[0] = mumpy.mumps_null()
+
+    def p_name(self, p):
+        """name_func : NAME LPAREN identifier RPAREN"""
+        p[0] = mumpy.MUMPSExpression(str(p[3]))
+
+    def p_length(self, p):
+        """length_func : LENGTH LPAREN expression COMMA expression RPAREN
+                       | LENGTH LPAREN expression RPAREN"""
+        if len(p) == 7:
+            p[0] = mumpy.MUMPSExpression(str(p[3]).count(str(p[5])))
+        else:
+            p[0] = mumpy.MUMPSExpression(len(str(p[3])))
+
+    def p_piece(self, p):
+        """piece_func : PIECE LPAREN expression COMMA expression COMMA expression RPAREN
+                      | PIECE LPAREN expression COMMA expression RPAREN"""
+        pnum = int(p[7].as_number()) if len(p) == 9 else 1
+        try:
+            piece = str(p[3]).split(sep=str(p[5]))[pnum-1]
+        except IndexError:
+            piece = mumpy.mumps_null()
+        p[0] = mumpy.MUMPSExpression(piece)
+
+    def p_random(self, p):
+        """random_func : RANDOM LPAREN expression RPAREN"""
+        num = p[3].as_number()
+        if num < 1:
+            raise mumpy.MUMPSSyntaxError("RANDOM argument less than 1.",
+                                         err_type="$R ARG INVALID")
+        p[0] = mumpy.MUMPSExpression(random.randint(0, num))
+
+    def p_select(self, p):
+        """select_func : SELECT LPAREN sel_argument_list RPAREN"""
+        for arg in p[3]:
+            if arg[0]:
+                p[0] = arg[1]
+                return
+        raise mumpy.MUMPSSyntaxError("No select arguments evaluated true.",
+                                     err_type="NO $S ARGS TRUE")
 
     ###################
     # LOGIC

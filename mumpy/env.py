@@ -74,6 +74,30 @@ class MUMPSEnvironment:
 
         # Get the argument list and push existing values onto the new frame
         args = func.rou.tag_args(func.tag)
+
+        # Check for syntax errors:
+        # If args is None and the function call provided arguments, or
+        # If args is not None and the call did not provide arguments, or
+        # If args is a shorter list than the input argument list
+        if args is None and func.args is not None:
+            raise mumpy.MUMPSSyntaxError("Function or subroutine does not "
+                                         "have argument list.",
+                                         err_type="NO ARGUMENTS")
+        elif args is not None and func.args is None:
+            raise mumpy.MUMPSSyntaxError("Function or subroutine has "
+                                         "arguments, but none provided.",
+                                         err_type="TOO MANY ARGUMENTS")
+        elif ((args is not None and func.args is not None) and
+                (len(args) < len(func.args))):
+            raise mumpy.MUMPSSyntaxError("Function or subroutine has fewer "
+                                         "arguments than provided.",
+                                         err_type="TOO MANY ARGUMENTS")
+
+        # Return if no arguments for this function
+        if args is None:
+            return
+
+        # Push the argument list on the stack
         for i, arg in enumerate(args):
             # Convert the tag argument name to an identifier
             # This is the new name of the symbol on the current stack frame
@@ -83,7 +107,7 @@ class MUMPSEnvironment:
             # If we can't find it, that's fine; MUMPS functions do not
             # require any or all parameters to be input - just set it null.
             #
-            # Check for TypeError in case the argument list is None.
+            # Check for TypeError in case the input argument list is None.
             try:
                 in_arg = str(mumpy.MUMPSExpression(func.args[i]))
             except (IndexError, TypeError):
