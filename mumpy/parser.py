@@ -29,7 +29,7 @@ class MUMPSParser:
         self.precedence = (
             ('left', 'PLUS', 'MINUS', 'TIMES', 'DIVIDE', 'IDIVIDE', 'AND', 'OR',
                      'GREATER_THAN', 'LESS_THAN', 'MODULUS', 'EXPONENT',
-                     'CONCAT', 'FOLLOWS', 'SORTS_AFTER', 'CONTAINS', 'EQUALS'),
+                     'CONCAT', 'FOLLOWS', 'CONTAINS', 'EQUALS'),
             ('right', 'NOT', 'UMINUS', 'UPLUS'),
         )
 
@@ -95,17 +95,16 @@ class MUMPSParser:
             raise mumpy.MUMPSSyntaxError(e)
 
     def parse_file(self, f, tag=None):
-        """Parse a MUMPSFile from the first tag or at a specified tag.
-
-        If execution of this function occurs from the interpreter, the state
-        of the parser will be modified during execution to account for
-        differences in parsing routines and individual command lines."""
+        """Parse a MUMPSFile from the first tag or at a specified tag."""
         # Check that we got a compiled file
         if not isinstance(f, mumpy.MUMPSFile):
             raise TypeError("Please specify a valid MUMPS routine.")
 
+        # Set the executing routine in the environment
+        self.env.set_current_rou(f, tag=tag)
+
         # If no tag is specified, start at the beginning
-        lines = f.lines() if tag is None else f.tag_body(tag)
+        lines = f.tag_body(tag if tag is not None else f.rou)
         ret = None
         for line in lines:
             if self.debug:
@@ -123,15 +122,47 @@ class MUMPSParser:
         # Return any resulting expression to the caller
         return ret
 
-    def parse_xecute(self, expr, env):
-        """Parse an expression for an XECUTE command."""
+    def parse_tag(self, f, tag):
+        """Parse a MUMPSFile starting at the specified tag. This function is
+        intended to be called internally when the parser identifies a
+        function or subroutine call."""
+        # Check that we got a compiled file
+        if not isinstance(f, mumpy.MUMPSFile):
+            raise TypeError("Please specify a valid MUMPS routine.")
+
+        # Get the tag body
+        lines = f.tag_body(tag)
+        ret = None
+        for line in lines:
+            if self.debug:
+                self.rou['lex'].test(line)
+
+            self.rou['lex'].reset()
+            p = self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
+            ret = p.execute()
+            if ret is not None:
+                break
+
+        # Reset the Lexer and Parser to the correct state
         self.rou['lex'].reset()
-        p = self.rou['parser'].parse(expr, lexer=self.rou['lex'].lexer)
-        return p.execute()
+
+        # Return any resulting expression to the caller
+        return ret
+
+    def parse_xecute(self, args, env):
+        """Parse an expression for an XECUTE command."""
+        for expr in args:
+            self.repl['lex'].reset()
+            p = self.repl['parser'].parse(str(expr), lexer=self.repl['lex'].lexer)
+            try:
+                return p.execute()
+            except Exception as e:
+                raise mumpy.MUMPSSyntaxError(e)
 
     def p_error(self, p):
         if p is not None:
-            raise lang.MUMPSSyntaxError(str(p), err_type="PARSE ERROR")
+            raise lang.MUMPSSyntaxError(str(p), err_type="PARSE ERROR",
+                                        line=p.lineno)
 
     ###################
     # GENERIC INPUT
@@ -161,11 +192,21 @@ class MUMPSParser:
 
     def p_input(self, p):
         """valid_input : valid_input SPACE command
-                       | command"""
-        if len(p) >= 4:
+                       | valid_input any_command
+                       | any_command"""
+        l = len(p)
+        if l == 4:
             p[0] = mumpy.MUMPSLine(p[3], p[1])
+        elif l == 3:
+            p[0] = mumpy.MUMPSLine(p[2], p[1])
         else:
             p[0] = mumpy.MUMPSLine(p[1])
+
+    def p_any_command(self, p):
+        """any_command : command
+                       | command SPACE
+                       | command_no_arg"""
+        p[0] = p[1]
 
     def p_command_argument(self, p):
         """command : write_command
@@ -175,13 +216,18 @@ class MUMPSParser:
                    | hang_command
                    | new_command
                    | kill_command
-                   | kill_all_command
                    | read_command
                    | do_command
                    | xecute_command
-                   | halt_command
-                   | write_symbols
                    | if_command"""
+        p[0] = p[1]
+
+    def p_command_no_arg(self, p):
+        """command_no_arg : kill_all_command
+                          | halt_command
+                          | write_symbols
+                          | if_command_no_args
+                          | else_command"""
         p[0] = p[1]
 
     ###################
@@ -204,8 +250,16 @@ class MUMPSParser:
         p[0] = mumpy.MUMPSCommand(lang.do_cmd, args, self.env, post=post)
 
     def p_if_command(self, p):
-        """if_command : IF argument_list"""
-        p[0] = mumpy.MUMPSCommand(lang.if_cmd, p[2], self.env)
+        """if_command : IF SPACE argument_list"""
+        p[0] = mumpy.MUMPSCommand(lang.if_cmd, p[3], self.env)
+
+    def p_if_command_no_arg(self, p):
+        """if_command_no_args : IF no_argument"""
+        p[0] = mumpy.MUMPSCommand(lang.if_no_args, None, self.env)
+
+    def p_else_command(self, p):
+        """else_command : ELSE no_argument"""
+        p[0] = mumpy.MUMPSCommand(lang.else_cmd, None, self.env)
 
     def p_kill_command(self, p):
         """kill_command : KILL SPACE symbol_list
@@ -345,7 +399,10 @@ class MUMPSParser:
     def p_subroutine_call(self, p):
         """subroutine_call : subroutine_call_tag
                            | subroutine_call_no_tag
-                           | subroutine_call_no_rou"""
+                           | subroutine_call_no_rou
+                           | subroutine_call COLON expression"""
+        if len(p) == 4:
+            p[1].post = p[3]
         p[0] = p[1]
 
     def p_subroutine_call_tag(self, p):
@@ -452,14 +509,14 @@ class MUMPSParser:
         p[0] = p[1]
 
     def p_pointer_argument(self, p):
-        """pointer_argument : PERIOD expression"""
-        p[0] = p[2]
+        """pointer_argument : PERIOD identifier"""
+        p[0] = mumpy.MUMPSPointerIdentifier(p[2], self.env)
 
     def p_symbol_list(self, p):
         """symbol_list : symbol_list COMMA identifier
                        | identifier"""
         if len(p) == 4:
-            p[0] = mumpy.MUMPSArgumentList(p[1], p[3])
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
         else:
             p[0] = mumpy.MUMPSArgumentList(p[1])
 
@@ -504,17 +561,20 @@ class MUMPSParser:
     ###################
     def p_expression(self, p):
         """expression : string_contents
+                      | not_and_expr
+                      | not_or_expr
+                      | not_gt_expr
+                      | not_lt_expr
+                      | not_equals_expr
+                      | not_follows_expr
+                      | not_sorts_after_expr
+                      | not_contains_expr
                       | not_expr
                       | and_expr
-                      | not_and_expr
                       | or_expr
-                      | not_or_expr
                       | gt_expr
-                      | not_gt_expr
                       | lt_expr
-                      | not_lt_expr
                       | equals_expr
-                      | not_equals_expr
                       | contains_expr
                       | sorts_after_expr
                       | follows_expr
@@ -523,7 +583,8 @@ class MUMPSParser:
                       | expression_parens
                       | identifier
                       | function_call
-                      | intrinsic_func"""
+                      | intrinsic_func
+                      | special_var"""
         p[0] = mumpy.MUMPSExpression(p[1])
 
     def p_expression_parens(self, p):
@@ -584,11 +645,15 @@ class MUMPSParser:
         """intrinsic_func : ascii_func
                           | char_func
                           | extract_func
-                          | name_func
+                          | find_func
+                          | justify_func
                           | length_func
+                          | name_func
                           | piece_func
                           | random_func
+                          | reverse_func
                           | select_func
+                          | translate_func
                           | intrinsic_not_exist"""
         p[0] = p[1]
 
@@ -653,9 +718,30 @@ class MUMPSParser:
         except IndexError:
             p[0] = mumpy.mumps_null()
 
-    def p_name(self, p):
-        """name_func : NAME LPAREN identifier RPAREN"""
-        p[0] = mumpy.MUMPSExpression(str(p[3]))
+    def p_find(self,p):
+        """find_func : FIND LPAREN expression COMMA expression COMMA expression RPAREN
+                     | FIND LPAREN expression COMMA expression RPAREN"""
+        start = p[7].as_number() if len(p) == 9 else None
+        try:
+            sub = str(p[5])
+            p[0] = mumpy.MUMPSExpression(
+                str(p[3]).index(sub, start) + len(sub) + 1)
+        except ValueError:
+            p[0] = mumpy.MUMPSExpression(0)
+
+    def p_justify(self, p):
+        """justify_func : JUSTIFY LPAREN expression COMMA expression COMMA expression RPAREN
+                        | JUSTIFY LPAREN expression COMMA expression RPAREN"""
+        l = len(p)
+        if l == 9:
+            fdec = p[7].as_number()
+            expr = round(p[3].as_number(), p[7].as_number())
+            s = str(expr).split(".")
+            dig, dec = len(s[0]), len(s[1])
+            expr = expr if dec >= fdec else str(expr).ljust(fdec + dig + 1, '0')
+        else:
+            expr = p[3]
+        p[0] = mumpy.MUMPSExpression(str(expr).rjust(p[5].as_number()))
 
     def p_length(self, p):
         """length_func : LENGTH LPAREN expression COMMA expression RPAREN
@@ -664,6 +750,10 @@ class MUMPSParser:
             p[0] = mumpy.MUMPSExpression(str(p[3]).count(str(p[5])))
         else:
             p[0] = mumpy.MUMPSExpression(len(str(p[3])))
+
+    def p_name(self, p):
+        """name_func : NAME LPAREN identifier RPAREN"""
+        p[0] = mumpy.MUMPSExpression(str(p[3]))
 
     def p_piece(self, p):
         """piece_func : PIECE LPAREN expression COMMA expression COMMA expression RPAREN
@@ -683,6 +773,10 @@ class MUMPSParser:
                                          err_type="$R ARG INVALID")
         p[0] = mumpy.MUMPSExpression(random.randint(0, num))
 
+    def p_reverse(self, p):
+        """reverse_func : REVERSE LPAREN expression RPAREN"""
+        p[0] = mumpy.MUMPSExpression(str(p[3])[::-1])
+
     def p_select(self, p):
         """select_func : SELECT LPAREN sel_argument_list RPAREN"""
         for arg in p[3]:
@@ -691,6 +785,61 @@ class MUMPSParser:
                 return
         raise mumpy.MUMPSSyntaxError("No select arguments evaluated true.",
                                      err_type="NO $S ARGS TRUE")
+
+    def p_translate(self, p):
+        """translate_func : TRANSLATE LPAREN expression COMMA expression COMMA expression RPAREN
+                          | TRANSLATE LPAREN expression COMMA expression RPAREN"""
+        # We use the string and translation map for both paths
+        s = str(p[3])
+        trs = str(p[5])
+        trmap = dict()
+
+        if len(p) == 9:
+            # Create a translation map between the two strings
+            # In this iteration, we map positionally identical characters
+            # between the input string and the replacement string
+            # Characters without matches are deleted (i.e. if the
+            # replacement string is shorter than the translation string)
+            newmap = str(p[7])
+            for i, c in enumerate(trs):
+                try:
+                    trmap[ord(c)] = ord(newmap[i])
+                except IndexError:
+                    trmap[ord(c)] = None
+        else:
+            # Create a translation map which deletes each character
+            for c in trs:
+                trmap[ord(c)] = None
+
+        # Return the translated string
+        p[0] = mumpy.MUMPSExpression(s.translate(trmap))
+
+    ###################
+    # SPECIAL VARIABLES
+    ###################
+    def p_special_var(self, p):
+        """special_var : horolog_var
+                       | test_var
+                       | x_var
+                       | y_var"""
+        p[0] = p[1]
+
+    def p_horolog(self, p):
+        """horolog_var : HOROLOG"""
+        p[0] = mumpy.MUMPSExpression(lang.horolog())
+
+    def p_test_var(self, p):
+        """test_var : TEST_TEXT
+                    | TEST"""
+        p[0] = mumpy.MUMPSExpression(self.env.get("$T"))
+
+    def p_x_var(self, p):
+        """x_var : DOLLARX"""
+        p[0] = mumpy.MUMPSExpression(self.env.get("$X"))
+
+    def p_y_var(self, p):
+        """y_var : DOLLARY"""
+        p[0] = mumpy.MUMPSExpression(self.env.get("$Y"))
 
     ###################
     # LOGIC
@@ -705,7 +854,7 @@ class MUMPSParser:
 
     def p_not_and_expr(self, p):
         """not_and_expr : expression NOT AND expression"""
-        p[0] = ~ (p[1] & p[3])
+        p[0] = ~ (p[1] & p[4])
 
     def p_or_expr(self, p):
         """or_expr : expression OR expression"""
@@ -713,7 +862,7 @@ class MUMPSParser:
 
     def p_not_or_expr(self, p):
         """not_or_expr : expression NOT OR expression"""
-        p[0] = p[1] | p[3]
+        p[0] = p[1] | p[4]
 
     ###################
     # COMPARISON
@@ -724,7 +873,7 @@ class MUMPSParser:
 
     def p_not_greater_than(self, p):
         """not_gt_expr : expression NOT GREATER_THAN expression"""
-        p[0] = ~ (p[1] > p[3])
+        p[0] = ~ (p[1] > p[4])
 
     def p_less_than(self, p):
         """lt_expr : expression LESS_THAN expression"""
@@ -732,7 +881,7 @@ class MUMPSParser:
 
     def p_not_less_than(self, p):
         """not_lt_expr : expression NOT LESS_THAN expression"""
-        p[0] = ~ (p[1] < p[3])
+        p[0] = ~ (p[1] < p[4])
 
     def p_equal_to(self, p):
         """equals_expr : expression EQUALS expression"""
@@ -740,19 +889,31 @@ class MUMPSParser:
 
     def p_not_equal_to(self, p):
         """not_equals_expr : expression NOT EQUALS expression"""
-        p[0] = p[1] != p[3]
+        p[0] = p[1] != p[4]
 
     def p_follows(self, p):
         """follows_expr : expression FOLLOWS expression"""
         p[0] = mumpy.MUMPSExpression(p[1]).follows(p[3])
 
+    def p_not_follows(self, p):
+        """not_follows_expr : expression NOT FOLLOWS expression"""
+        p[0] = ~mumpy.MUMPSExpression(p[1]).follows(p[4])
+
     def p_sorts_after(self, p):
         """sorts_after_expr : expression FOLLOWS FOLLOWS expression"""
-        p[0] = mumpy.MUMPSExpression(p[1]).sorts_after(p[3])
+        p[0] = mumpy.MUMPSExpression(p[1]).sorts_after(p[4])
+
+    def p_not_sorts_after(self, p):
+        """not_sorts_after_expr : expression NOT FOLLOWS FOLLOWS expression"""
+        p[0] = ~mumpy.MUMPSExpression(p[1]).sorts_after(p[5])
 
     def p_contains(self, p):
         """contains_expr : expression CONTAINS expression"""
         p[0] = mumpy.MUMPSExpression(p[1]).contains(p[3])
+
+    def p_not_contains(self, p):
+        """not_contains_expr : expression NOT CONTAINS expression"""
+        p[0] = ~mumpy.MUMPSExpression(p[1]).contains(p[4])
 
     ###################
     # ARITHMETIC
@@ -779,16 +940,32 @@ class MUMPSParser:
 
     def p_division(self, p):
         """division : expression DIVIDE expression"""
-        p[0] = p[1] / p[3]
+        try:
+            p[0] = p[1] / p[3]
+        except ZeroDivisionError:
+            raise mumpy.MUMPSSyntaxError("Cannot divide by zero.",
+                                         err_type="DIVIDE BY ZERO")
 
     def p_idivision(self, p):
         """idivision : expression IDIVIDE expression"""
-        p[0] = p[1] // p[3]
+        try:
+            p[0] = p[1] // p[3]
+        except ZeroDivisionError:
+            raise mumpy.MUMPSSyntaxError("Cannot divide by zero.",
+                                         err_type="DIVIDE BY ZERO")
 
     def p_modulus(self, p):
         """modulus : expression MODULUS expression"""
-        p[0] = p[1] % p[3]
+        try:
+            p[0] = p[1] % p[3]
+        except ZeroDivisionError:
+            raise mumpy.MUMPSSyntaxError("Cannot divide by zero.",
+                                         err_type="DIVIDE BY ZERO")
 
     def p_exponent(self, p):
         """exponent : expression EXPONENT expression"""
-        p[0] = p[1] ** p[3]
+        try:
+            p[0] = p[1] ** p[3]
+        except TypeError:
+            raise mumpy.MUMPSSyntaxError("The result is a complex number.",
+                                         err_type="COMPLEX RESULT")

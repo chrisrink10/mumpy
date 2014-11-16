@@ -1,9 +1,15 @@
 """MUMPY MUMPS language components"""
 __author__ = 'christopher'
+import datetime
 import string
 import time
 import traceback
 import mumpy
+
+
+# Date and time values are pre-calculated since they won't change
+_horolog_origin = datetime.datetime(1840, 12, 31)
+_horolog_midnight = datetime.time()
 
 
 ###################
@@ -39,10 +45,24 @@ def if_cmd(args, env):
     """Process an IF MUMPS command."""
     for expr in args:
         if not expr:
-            env.set("$T", False)
+            env.set("$T", mumps_false())
             return False
-    env.set("$T", True)
+    env.set("$T", mumps_true())
     return True
+
+
+def if_no_args(args, env):
+    """Process an argumentless IF MUMPS command."""
+    if env.get("$T").equals(mumps_true()):
+        return True
+    return False
+
+
+def else_cmd(args, env):
+    """Process a MUMPS ELSE command."""
+    if env.get("$T").equals(mumps_false()):
+        return True
+    return False
 
 
 def kill(args, env):
@@ -62,7 +82,7 @@ def quit_cmd(args, env):
     """Quit from the current scope."""
     # Quits from a DO block should have no argument
     if args is None:
-        return None
+        return MUMPSNone()
 
     # Check for multiple quit arguments
     if len(args) > 1:
@@ -111,6 +131,29 @@ def write_symbols(args, env):
     """Write out all of the symbols in the environment."""
     env.print()
     return None
+
+
+###################
+# SPECIAL VARIABLE FUNCTIONS
+###################
+def horolog():
+    """Return the MUMPS $H time and date variable."""
+    # Get today and now
+    today = datetime.datetime.today()
+    now = datetime.datetime.now()
+
+    # Figure out the midnight of today so we can compute the timedelta
+    midnight = datetime.datetime.combine(today, _horolog_midnight)
+
+    # Produce the deltas
+    daydelta = today - _horolog_origin
+    tdelta = now - midnight
+
+    # Produce the string
+    return "{d},{t}".format(
+        d=daydelta.days,
+        t=tdelta.seconds,
+    )
 
 
 ###################
@@ -215,7 +258,9 @@ class MUMPSCommand:
 
 
 class MUMPSFuncSubCall:
-    def __init__(self, tag, env, parser, args=None, is_func=False, rou=None):
+    """Represents a function or subroutine call in a MUMPS routine."""
+    def __init__(self, tag, env, parser, args=None,
+                 is_func=False, rou=None, post=True):
         """Initialize a MUMPS Function or Subroutine call."""
         # The tag should be a valid MUMPS Identifier
         if not isinstance(tag, MUMPSIdentifier):
@@ -223,7 +268,8 @@ class MUMPSFuncSubCall:
                                    err_type="INVALID FUNC OR SUB")
 
         # Check that we got an actual argument list
-        if not isinstance(args, (type(None), MUMPSArgumentList)):
+        if not isinstance(args,
+                          (type(None), MUMPSArgumentList)) and not args == ():
             raise MUMPSSyntaxError("Functions and subroutines require a "
                                    "valid argument list.",
                                    err_type="INVALID ARGUMENTS")
@@ -242,6 +288,7 @@ class MUMPSFuncSubCall:
         self.parser = parser
         self.is_func = is_func
         self.rou = self.env.get_routine(rou)
+        self.post = post
 
         # If we don't have a routine at this point, we're in an error state
         if self.rou is None:
@@ -253,22 +300,26 @@ class MUMPSFuncSubCall:
                     tag=self.tag,
                     args=self.args,
                     env=self.env,
-                    as_func=self.as_func,
+                    as_func=self.is_func,
                     rou=self.rou,
                 ))
 
     def execute(self):
         """Execute the subroutine or function call."""
+        # Check for a post-conditional (for subroutines only)
+        if not self.post:
+            return None
+
         # Execute the function or subroutine
         self.env.push_func_to_stack(self)
-        p = self.parser.parse_file(self.rou, tag=self.tag)
+        p = self.parser.parse_tag(self.rou, self.tag)
         self.env.pop_func_from_stack()
 
         # Check for syntax errors
-        if self.is_func and p is None:
+        if self.is_func and isinstance(p, (type(None), MUMPSNone)):
             raise MUMPSSyntaxError("Function call did not return value.",
                                    err_type="FUNCTION NO RETURN")
-        if not self.is_func and p is not None:
+        if not self.is_func and not isinstance(p, MUMPSNone):
             raise MUMPSSyntaxError("Subroutine call returned a value.",
                                    err_type="SUBROUTINE RETURN")
 
@@ -292,6 +343,13 @@ class MUMPSExpression:
         else:
             self.expr = expr
 
+    ###################
+    # SAFE FUNCTIONS
+    # These functions have no side-effects. They do not modify the
+    # existing expression. The operator overloaded functions will
+    # modify the existing expression and return it with the compound
+    # result of the operation.
+    ###################
     def as_number(self):
         """Return the canonical MUMPS numeric form of this expression."""
         if isinstance(self.expr, MUMPSIdentifier):
@@ -306,6 +364,18 @@ class MUMPSExpression:
         """Return the Identifier represented by this expression."""
         return self.expr if isinstance(self.expr, MUMPSIdentifier) else None
 
+    def equals(self, other):
+        """Returns True if this expression is equal to the other expression.
+
+        Unlike the == overloaded method, this method will not modify the
+        contents of the current expression."""
+        return int(str(self) == str(MUMPSExpression(other)))
+
+    ###################
+    # UNSAFE FUNCTIONS
+    # These functions WILL MODIFY THE EXISTING EXPRESSION. They compute
+    # the reduced expression into the existing expression and return self.
+    ###################
     def __getitem__(self, item):
         """Enable MUMPSExpressions to be subscriptable."""
         return self.expr.__getitem__(item)
@@ -321,8 +391,10 @@ class MUMPSExpression:
     def __str__(self):
         """Return the string value of the expression."""
         if isinstance(self.expr, MUMPSIdentifier):
-            return str(self.expr.value())
-        return str(self.expr)
+            v = str(self.expr.value())
+        else:
+            v = str(self.expr)
+        return v
 
     def __repr__(self):
         """Return a string representation of this object."""
@@ -373,9 +445,15 @@ class MUMPSExpression:
         self.expr = _mumps_number(self.as_number() / _other_as_number(other))
         return self
 
-    def __idiv__(self, other):
-        """Integer divide two MUMPS expressions."""
-        self.expr = _mumps_number(self.as_number() // _other_as_number(other))
+    def __floordiv__(self, other):
+        """Integer divide two MUMPS expressions.
+
+        See here for truncation towards zero:
+        http://stackoverflow.com/questions/19919387/in-python-what-is-a-good-way-to-round-towards-zero-in-integer-division"""
+        n = self.as_number()
+        d = _other_as_number(other)
+        v = n // d if n * d > 0 else (n + (-n % d)) // d
+        self.expr = _mumps_number(v)
         return self
 
     def __mod__(self, other):
@@ -448,6 +526,16 @@ def mumps_null():
     return MUMPSExpression(None)
 
 
+def mumps_true():
+    """Return the MUMPS true value, 1."""
+    return MUMPSExpression(1)
+
+
+def mumps_false():
+    """Return the MUMPS false value, 0."""
+    return MUMPSExpression(0)
+
+
 class MUMPSIdentifier:
     """Represents a MUMPS identifier in code."""
     def __init__(self, ident, env):
@@ -500,6 +588,21 @@ class MUMPSIdentifier:
                                    "ASCII letters or the '%' character.")
 
 
+class MUMPSPointerIdentifier(MUMPSIdentifier):
+    """Represents a normal MUMPS identifier which will be used as a pointer
+    when passed into a function or subroutine."""
+    def __init__(self, ident, env):
+        super().__init__(ident, env)
+
+
+class MUMPSNone:
+    """Represents the empty return from a subroutine. The purpose of this
+    class is merely to act as a sentinel value, indicating that execution
+    has finished and that the parser should return."""
+    def __init__(self):
+        pass
+
+
 class MUMPSArgumentList:
     """Holds a list of MUMPS arguments for a command to process."""
     def __init__(self, item, others=None):
@@ -533,13 +636,15 @@ class MUMPSArgumentList:
 
 class MUMPSSyntaxError(Exception):
     """Represents a MUMPS syntax error."""
-    def __init__(self, err, err_type=None):
+    def __init__(self, err, err_type=None, line=None):
         if isinstance(err, MUMPSSyntaxError):
             self.msg = err.msg
             self.err_type = err.err_type
+            self.line = line
         else:
             self.msg = str(err)
             self.err_type = "UNKNOWN" if err_type is None else err_type
+            self.line = line
             #TODO: Remove this print_exc call
             try:
                 traceback.print_exc()
@@ -547,9 +652,10 @@ class MUMPSSyntaxError(Exception):
                 pass
 
     def __str__(self):
-        return "SYNTAX ERROR <{type}>: {msg}".format(
+        return "SYNTAX ERROR <{type}{line}>: {msg}".format(
             type=self.err_type,
-            msg=self.msg
+            msg=self.msg,
+            line=":{num}".format(num=self.line) if self.line is not None else "",
         )
 
     def __repr__(self):
@@ -567,6 +673,8 @@ def _mumps_number(v):
 
 def _to_mumps_number(v):
     """Given a value, attempt to coerce it to either an integer or float."""
+    sign = 1
+    ndec = 0
     try:
         tmp = float(v)
 
@@ -577,11 +685,36 @@ def _to_mumps_number(v):
     except ValueError:
         v = str(v)
         n = []
+
+        # Build a number based on the MUMPS numeric conversion rules
         for c in v:
-            if c.isnumeric() or c == ".":
+            # Look for numeric characters (digits, decimal, or sign)
+            if c.isnumeric() or c in ('.', '+', '-'):
+                # Make sure we only add one decimal
+                if c == '.':
+                    if ndec >= 1:
+                        break
+                    else:
+                        ndec += 1
+
+                # Correctly swap the sign
+                if c == '-':
+                    sign *= -1
+                    continue
+
+                # Ignore the plus signs
+                if c == '+':
+                    continue
+
+                # If we made it this far, this is a valid numeric character
                 n.append(c)
-        n = "".join(n)
-        return float(n) if '.' in n else int(n)
+            else:
+                # If we don't find any,
+                break
+
+        # Re-assemble the digits and attempt to convert it
+        n = float("".join(n)) * sign
+        return n if not n.is_integer() else int(n)
 
 
 def _other_as_number(other):
