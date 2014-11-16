@@ -1,4 +1,5 @@
 """MUMPy Tokenizer"""
+import re
 import ply.lex as lex
 import mumpy
 
@@ -107,7 +108,7 @@ class MUMPSLexer:
         '$select': 'SELECT',
         '$st': 'STACK',
         '$stack': 'STACK',
-        '$t': 'TEXT',
+        '$t': 'TEST_TEXT',
         '$text': 'TEXT',
         '$tr': 'TRANSLATE',
         '$translate': 'TRANSLATE',
@@ -122,7 +123,14 @@ class MUMPSLexer:
     # MUMPS VARIABLES
     ###################
     # List of MUMPS variable tokens
-    variables = {}
+    variables = {
+        '$h': 'HOROLOG',
+        '$horolog': 'HOROLOG',
+        '$t': 'TEST_TEXT',
+        '$test': 'TEST',
+        '$x': 'DOLLARX',
+        '$y': 'DOLLARY',
+    }
 
     # Create a tuple of
     variable_tokens = tuple(set(variables.values()))
@@ -142,12 +150,10 @@ class MUMPSLexer:
         'COMMENT', 'STRING', 'NUMBER',
         'MODULUS', 'NOT', 'GREATER_THAN',
         'LESS_THAN', 'AND', 'OR', 'COMMA',
-        'CONCAT', 'NEWLINE', 'KEYWORD',
-        'LPAREN', 'RPAREN', 'SPACE', 'CARET',
-        'COLON', 'EXTRINSIC', 'INTRINSIC',
-        'INDIRECTION', 'SORTS_AFTER',
-        'CONTAINS', 'FOLLOWS', 'PATTERN',
-        'PERIOD', 'SYMBOL'
+        'CONCAT', 'NEWLINE', 'LPAREN', 'RPAREN',
+        'SPACE', 'CARET', 'COLON', 'EXTRINSIC',
+        'INDIRECTION', 'CONTAINS', 'FOLLOWS',
+        'PATTERN', 'PERIOD', 'SYMBOL'
     ) + keyword_tokens + intrinsic_tokens + variable_tokens + errors
 
     ###################
@@ -208,7 +214,12 @@ class MUMPSLexer:
 
         See this StackOverflow post for information on this RegEx:
         http://stackoverflow.com/questions/9981624/match-a-double-quoted-string\
-        -with-double-quote-inside"""
+        -with-double-quote-inside
+
+        This function also reduces double double-quotes inside MUMPS strings
+        to single double-quotes. Double double-quotes are the standard
+        escape convention for that language."""
+        t.value = re.sub(self.escape, '"', t.value)
         return t
 
     @lex.TOKEN(r'[ ]{1}')
@@ -229,7 +240,11 @@ class MUMPSLexer:
     @lex.TOKEN(r'\$[a-zA-Z]+')
     def t_command_INTRINSIC(self, t):
         """Match INTRINSIC function tokens in command mode."""
-        t.type = self.intrinsics.get(str(t.value).lower(), 'FN_DOES_NOT_EXIST')
+        kw = str(t.value).lower()
+        try:
+            t.type = self.intrinsics[kw]
+        except KeyError:
+            t.type = self.variables.get(kw, 'FN_DOES_NOT_EXIST')
         return t
 
     @lex.TOKEN(r';.*')
@@ -326,6 +341,9 @@ class MUMPSLexer:
         self.command = {'spaces': 0}
         self.initial = {'spaces': 0}
         self.reset()
+
+        # Escape string regex
+        self.escape = re.compile('"{2}')
 
     def __repr__(self):
         return "MUMPSLexer()"
