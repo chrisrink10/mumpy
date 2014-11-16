@@ -1,6 +1,5 @@
 """MUMPy Parser"""
 import logging
-import random
 import ply.yacc as yacc
 import mumpy
 import mumpy.lang as lang
@@ -219,7 +218,10 @@ class MUMPSParser:
                    | read_command
                    | do_command
                    | xecute_command
-                   | if_command"""
+                   | if_command
+                   | open_command
+                   | close_command
+                   | use_command"""
         p[0] = p[1]
 
     def p_command_no_arg(self, p):
@@ -297,6 +299,42 @@ class MUMPSParser:
 
         # Set the values
         p[0] = mumpy.MUMPSCommand(lang.set_var, args, self.env, post=post)
+
+    def p_open_command(self, p):
+        """open_command : OPEN SPACE device_list
+                        | OPEN COLON expression SPACE device_list"""
+        if len(p) == 6:
+            post = p[3]
+            args = p[5]
+        else:
+            post = None
+            args = p[3]
+
+        p[0] = mumpy.MUMPSCommand(lang.open_dev, args, self.env, post=post)
+
+    def p_close_command(self, p):
+        """close_command : CLOSE SPACE device_list
+                         | CLOSE COLON expression SPACE device_list"""
+        if len(p) == 6:
+            post = p[3]
+            args = p[5]
+        else:
+            post = None
+            args = p[3]
+
+        p[0] = mumpy.MUMPSCommand(lang.close_dev, args, self.env, post=post)
+
+    def p_use_command(self, p):
+        """use_command : USE SPACE device
+                       | USE COLON expression SPACE device"""
+        if len(p) == 6:
+            post = p[3]
+            args = mumpy.MUMPSArgumentList(p[5])
+        else:
+            post = None
+            args = mumpy.MUMPSArgumentList(p[3])
+
+        p[0] = mumpy.MUMPSCommand(lang.use_dev, args, self.env, post=post)
 
     def p_read_command(self, p):
         """read_command : READ SPACE argument_list
@@ -552,6 +590,36 @@ class MUMPSParser:
         else:
             p[0] = mumpy.MUMPSArgumentList(p[1])
 
+    def p_device_list(self, p):
+        """device_list : device_list COMMA device
+                       | device"""
+        l = len(p)
+        if l == 4:
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_device(self, p):
+        """device : expression
+                  | expression COLON LPAREN device_parameter_list RPAREN"""
+        l = len(p)
+        if l == 6:
+            p[0] = (p[1], _device_params_to_dict(p[4]))
+        else:
+            p[0] = (p[1], None)
+
+    def p_device_parameter_list(self, p):
+        """device_parameter_list : device_parameter_list COMMA device_parameter
+                                 | device_parameter"""
+        if len(p) == 4:
+            p[0] = p[1].append(p[3])
+        else:
+            p[0] = [p[1]]
+
+    def p_device_parameter(self, p):
+        """device_parameter : expression COLON expression"""
+        p[0] = (p[1], p[3])
+
     def p_no_arguments(self, p):
         """no_argument : SPACE SPACE"""
         p[0] = p[1]
@@ -662,116 +730,66 @@ class MUMPSParser:
         raise mumpy.MUMPSSyntaxError("Function does not exist.",
                                      err_type="FN DOES NOT EXIST")
 
+    def p_justify_token(self, p):
+        """justify_token : JUSTIFY_DOLLARJ
+                         | JUSTIFY"""
+        p[0] = p[1]
+
+    def p_piece_token(self, p):
+        """piece_token : PIECE_PRINCIPAL
+                       | PIECE"""
+        p[0] = p[1]
+
     def p_ascii(self, p):
         """ascii_func : ASCII LPAREN expression COMMA expression RPAREN
                       | ASCII LPAREN expression RPAREN"""
-        pnum = int(p[5].as_number()) if len(p) == 7 else 1
-        try:
-            if pnum-1 >= 0:
-                char = ord(str(p[3])[pnum-1])
-            else:
-                raise IndexError
-        except IndexError:
-            char = mumpy.MUMPSExpression(-1)
-        p[0] = mumpy.MUMPSExpression(char)
+        which = int(p[5].as_number()) if len(p) == 7 else 1
+        p[0] = lang.intrinsic_ascii(p[3], which=which)
 
     def p_char(self, p):
         """char_func : CHAR LPAREN argument_list RPAREN"""
-        chars = []
-        for arg in p[3]:
-            chars.append(chr(arg.as_number()))
-        p[0] = mumpy.MUMPSExpression(''.join(chars))
+        p[0] = lang.instrinsic_char(p[3])
 
     def p_extract(self, p):
         """extract_func : EXTRACT LPAREN expression COMMA expression COMMA expression RPAREN
                         | EXTRACT LPAREN expression COMMA expression RPAREN
                         | EXTRACT LPAREN expression RPAREN"""
         l = len(p)
-        try:
-            if l == 9:
-                # Get the indices
-                slen = len(str(p[3]))
-                low = p[5].as_number()-1
-                high = p[7].as_number()         # High index is inclusive
-
-                # The low index cannot be higher than the high index
-                # The low index cannot be below 0 either
-                if low > high or low < 0:
-                    raise IndexError
-
-                # The length cannot exceed the string length
-                if high > slen:
-                    high = slen
-
-                p[0] = mumpy.MUMPSExpression(str(p[3])[low:high])
-            elif l == 7:
-                # Get the index
-                idx = p[5].as_number()-1
-
-                # The low index cannot be below 0
-                if idx < 0:
-                    raise IndexError
-
-                p[0] = mumpy.MUMPSExpression(str(p[3])[idx])
-            else:
-                p[0] = mumpy.MUMPSExpression(str(p[3])[0])
-        except IndexError:
-            p[0] = mumpy.mumps_null()
+        low = p[5] if l == 7 else 1
+        high = p[7] if l == 9 else None
+        p[0] = lang.intrinsic_extract(p[3], low=low, high=high)
 
     def p_find(self,p):
         """find_func : FIND LPAREN expression COMMA expression COMMA expression RPAREN
                      | FIND LPAREN expression COMMA expression RPAREN"""
         start = p[7].as_number() if len(p) == 9 else None
-        try:
-            sub = str(p[5])
-            p[0] = mumpy.MUMPSExpression(
-                str(p[3]).index(sub, start) + len(sub) + 1)
-        except ValueError:
-            p[0] = mumpy.MUMPSExpression(0)
+        p[0] = lang.intrinsic_find(p[3], p[5], start=start)
 
     def p_justify(self, p):
-        """justify_func : JUSTIFY LPAREN expression COMMA expression COMMA expression RPAREN
-                        | JUSTIFY LPAREN expression COMMA expression RPAREN"""
-        l = len(p)
-        if l == 9:
-            fdec = p[7].as_number()
-            expr = round(p[3].as_number(), p[7].as_number())
-            s = str(expr).split(".")
-            dig, dec = len(s[0]), len(s[1])
-            expr = expr if dec >= fdec else str(expr).ljust(fdec + dig + 1, '0')
-        else:
-            expr = p[3]
-        p[0] = mumpy.MUMPSExpression(str(expr).rjust(p[5].as_number()))
+        """justify_func : justify_token LPAREN expression COMMA expression COMMA expression RPAREN
+                        | justify_token LPAREN expression COMMA expression RPAREN"""
+        ndec = p[7].as_number() if len(p) == 9 else None
+        p[0] = lang.intrinsic_justify(p[3], p[5].as_number(), ndec)
 
     def p_length(self, p):
         """length_func : LENGTH LPAREN expression COMMA expression RPAREN
                        | LENGTH LPAREN expression RPAREN"""
-        if len(p) == 7:
-            p[0] = mumpy.MUMPSExpression(str(p[3]).count(str(p[5])))
-        else:
-            p[0] = mumpy.MUMPSExpression(len(str(p[3])))
+        char = p[5] if len(p) == 7 else None
+        p[0] = lang.intrinsic_length(p[3], char=char)
 
     def p_name(self, p):
         """name_func : NAME LPAREN identifier RPAREN"""
         p[0] = mumpy.MUMPSExpression(str(p[3]))
 
     def p_piece(self, p):
-        """piece_func : PIECE LPAREN expression COMMA expression COMMA expression RPAREN
-                      | PIECE LPAREN expression COMMA expression RPAREN"""
+        """piece_func : piece_token LPAREN expression COMMA expression COMMA expression RPAREN
+                      | piece_token LPAREN expression COMMA expression RPAREN"""
         pnum = int(p[7].as_number()) if len(p) == 9 else 1
-        try:
-            piece = str(p[3]).split(sep=str(p[5]))[pnum-1]
-        except IndexError:
-            piece = mumpy.mumps_null()
-        p[0] = mumpy.MUMPSExpression(piece)
+        p[0] = lang.intrinsic_piece(p[3], p[5], num=pnum)
 
     def p_random(self, p):
         """random_func : RANDOM LPAREN expression RPAREN"""
-        num = p[3].as_number()
-        if num < 1:
-            raise mumpy.MUMPSSyntaxError("RANDOM argument less than 1.",
-                                         err_type="$R ARG INVALID")
-        p[0] = mumpy.MUMPSExpression(random.randint(0, num))
+        p[0] = lang.intrinsic_random(p[3].as_number())
 
     def p_reverse(self, p):
         """reverse_func : REVERSE LPAREN expression RPAREN"""
@@ -779,46 +797,22 @@ class MUMPSParser:
 
     def p_select(self, p):
         """select_func : SELECT LPAREN sel_argument_list RPAREN"""
-        for arg in p[3]:
-            if arg[0]:
-                p[0] = arg[1]
-                return
-        raise mumpy.MUMPSSyntaxError("No select arguments evaluated true.",
-                                     err_type="NO $S ARGS TRUE")
+        p[0] = lang.intrinsic_select(p[3])
 
     def p_translate(self, p):
         """translate_func : TRANSLATE LPAREN expression COMMA expression COMMA expression RPAREN
                           | TRANSLATE LPAREN expression COMMA expression RPAREN"""
-        # We use the string and translation map for both paths
-        s = str(p[3])
-        trs = str(p[5])
-        trmap = dict()
-
-        if len(p) == 9:
-            # Create a translation map between the two strings
-            # In this iteration, we map positionally identical characters
-            # between the input string and the replacement string
-            # Characters without matches are deleted (i.e. if the
-            # replacement string is shorter than the translation string)
-            newmap = str(p[7])
-            for i, c in enumerate(trs):
-                try:
-                    trmap[ord(c)] = ord(newmap[i])
-                except IndexError:
-                    trmap[ord(c)] = None
-        else:
-            # Create a translation map which deletes each character
-            for c in trs:
-                trmap[ord(c)] = None
-
-        # Return the translated string
-        p[0] = mumpy.MUMPSExpression(s.translate(trmap))
+        newexpr = p[7] if len(p) == 9 else None
+        p[0] = lang.intrinsic_translate(p[3], p[5], newexpr=newexpr)
 
     ###################
     # SPECIAL VARIABLES
     ###################
     def p_special_var(self, p):
         """special_var : horolog_var
+                       | io_var
+                       | job_var
+                       | principal_var
                        | test_var
                        | x_var
                        | y_var"""
@@ -826,7 +820,21 @@ class MUMPSParser:
 
     def p_horolog(self, p):
         """horolog_var : HOROLOG"""
-        p[0] = mumpy.MUMPSExpression(lang.horolog())
+        p[0] = lang.horolog()
+
+    def p_io_var(self, p):
+        """io_var : DOLLARIO"""
+        p[0] = self.env.current_device()
+
+    def p_job_var(self, p):
+        """job_var : DOLLARJ
+                   | JUSTIFY_DOLLARJ"""
+        p[0] = lang.current_job()
+
+    def p_principal_var(self, p):
+        """principal_var : PIECE_PRINCIPAL
+                         | PRINCIPAL"""
+        p[0] = self.env.default_device()
 
     def p_test_var(self, p):
         """test_var : TEST_TEXT
@@ -969,3 +977,8 @@ class MUMPSParser:
         except TypeError:
             raise mumpy.MUMPSSyntaxError("The result is a complex number.",
                                          err_type="COMPLEX RESULT")
+
+
+def _device_params_to_dict(params):
+    """Convert a list of device parameters to a dictionary."""
+    return {t[0]: t[1] for t in params}

@@ -12,6 +12,9 @@ class MUMPSEnvironment:
     """A MUMPy execution stack."""
     def __init__(self, in_dev=sys.stdin, out_dev=sys.stdout,
                  err_dev=sys.stderr):
+        # Default I/O device
+        self._default_device = 'STANDARD'
+
         # Current stack level and variable stack
         self._cur = 0
         self._stack = [{}]
@@ -21,9 +24,9 @@ class MUMPSEnvironment:
         self._in_dev = in_dev
         self._out_dev = out_dev
         self._err_dev = err_dev
-        self._cur_dev = 'STANDARD'
+        self._cur_dev = self._default_device
         self._devices = {}
-        self._modes = ('r', 'w', 'x', 'a')
+        self._modes = ('r', 'w', 'x', 'a', 'r+')
 
         # Function and subroutine call stack
         self._call_stack = []
@@ -37,6 +40,24 @@ class MUMPSEnvironment:
             lvl=self._cur,
             rou=self.get_current_rou(),
         )
+
+    def __del__(self):
+        """Release any remaining file resources. Raise a MUMPSSyntaxError
+        for failing to close open devices."""
+        # If no devices are open, exit
+        if len(self._devices) == 0:
+            return
+
+        # Close any remaining devices
+        for dev in self._devices:
+            try:
+                dev.close()
+            except AttributeError:
+                pass
+
+        # Raise the syntax error
+        raise mumpy.MUMPSSyntaxError("Failed to close an open I/O device.",
+                                     err_type="FAILED TO CLOSE IO")
 
     def _init_sys_vars(self):
         """Initialize some of the system default variables."""
@@ -274,10 +295,21 @@ class MUMPSEnvironment:
     ###################
     # OUTPUT FUNCTIONS
     ###################
-    def open(self, dev, mode='r'):
+    def current_device(self):
+        """Return the name of the current device."""
+        return mumpy.MUMPSExpression(self._cur_dev)
+
+    def default_device(self):
+        """Return the default device for this session."""
+        return mumpy.MUMPSExpression(self._default_device)
+
+    def open(self, dev, mode='r+'):
         """Open a file device and add it to the file device list."""
+        # Store the device in string form only
+        dev = str(dev)
+
         # We don't need to open this device again
-        if dev in self._devices:
+        if dev in self._devices or dev == self._default_device:
             return
 
         # Check for valid device modes
@@ -295,21 +327,43 @@ class MUMPSEnvironment:
 
     def close(self, dev):
         """Close a file device and remove it from use if it is in use."""
+        dev = str(dev)
+
+        # We cannot close a device we are not using
         if dev not in self._devices:
             raise mumpy.MUMPSSyntaxError("Selected IO device not found.",
                                          err_type="IO DEVICE NOT FOUND")
+
+        # We cannot close the $PRINCIPAL device
+        if dev == self._default_device:
+            raise mumpy.MUMPSSyntaxError("Cannot close $PRINCIPAL.",
+                                         err_type="INVALID DEVICE")
+
         # Close the device
         self._devices[dev].close()
 
         # Check if the device we just closed was the current device;
-        # If so, make STDIN/STDOUT the current device
+        # If so, revert back to the $PRINCIPAL IO device
         if self._cur_dev == dev:
-            self._cur_dev = 'STANDARD'
-            self._in_dev = sys.stdin
-            self._out_dev = sys.stdout
+            self.use(self._default_device)
 
     def use(self, dev):
-        pass
+        """Specify the current device."""
+        dev = str(dev)
+        is_principal = (dev == self._default_device)
+
+        # Make sure we have this device
+        if dev not in self._devices and not is_principal:
+            raise mumpy.MUMPSSyntaxError("Selected IO device not found.",
+                                         err_type="IO DEVICE NOT FOUND")
+
+        # Set the device
+        self._cur_dev = dev
+        if is_principal:
+            self._in_dev, self._out_dev = sys.stdin, sys.stdout
+        else:
+            dev = self._devices[dev]
+            self._in_dev, self._out_dev = dev, dev
 
     def input(self, size=None, prompt=None):
         """Input from the current input device."""

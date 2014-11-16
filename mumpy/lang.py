@@ -1,7 +1,9 @@
 """MUMPY MUMPS language components"""
 __author__ = 'christopher'
 import datetime
+import random
 import string
+import os
 import time
 import traceback
 import mumpy
@@ -14,6 +16,14 @@ _horolog_midnight = datetime.time()
 
 ###################
 # COMMAND FUNCTIONS
+# Command functions execute the actions given by a MUMPS keyword command
+# such as 'w' (write). Each matches the signature func(args, env). They
+# return one of the following values:
+# - None :: the command has finished and execution should continue
+# - True :: the command was conditional (IF, ELSE) and execution can continue
+# - False :: the command was conditional (IF, ELSE) and execution should stop
+# - MUMPSNone() :: a scope change command (i.e. QUIT) is returning nothing
+# - MUMPSExpression() :: a scope change command is returning a value
 ###################
 def new_var(args, env):
     """New the variables given in the argument list."""
@@ -93,6 +103,44 @@ def quit_cmd(args, env):
     return str(args[0])
 
 
+def open_dev(args, env):
+    """Open the devices given in the argument list."""
+    for arg in args:
+        # Unpack the device and device parameters
+        dev = arg[0]
+        opts = arg[1]
+
+        # Open the device
+        env.open(dev)
+    return None
+
+
+def close_dev(args, env):
+    """Close the devices given in the argument list."""
+    for arg in args:
+        # Unpack the device and device parameters
+        dev = arg[0]
+        opts = arg[1]
+
+        # Open the device
+        env.close(dev)
+    return None
+
+
+def use_dev(args, env):
+    """Use the device listed in the argument list."""
+    # We can only have one argument
+    arg = args[0]
+
+    # Unpack the device and any parameters
+    dev = arg[0]
+    opts = arg[1]
+
+    # Set the device
+    env.use(dev)
+    return None
+
+
 def read(args, env):
     """Read inputs from the current environment device."""
     read_last = False
@@ -134,7 +182,174 @@ def write_symbols(args, env):
 
 
 ###################
+# INTRINSIC FUNCTIONS
+# Intrinsic functions are those functions in MUMPS which are prefixed
+# with a single dollar sign and provide some functionality which is
+# difficult or otherwise impossible to complete using the standard
+# MUMPS commands.
+###################
+def intrinsic_ascii(expr, which=1):
+    """Return the UTF-8 ordinal value for the character number in expr given
+    by the input parameter `which` or -1 if `which` is larger than the
+    length of the expression."""
+    try:
+        if which-1 >= 0:
+            char = MUMPSExpression(ord(str(expr)[which-1]))
+        else:
+            raise IndexError
+    except IndexError:
+        char = MUMPSExpression(-1)
+
+    return char
+
+
+def instrinsic_char(args):
+    """Return the UTF-8 character value for the ordinal number or numbers
+    given in the argument list."""
+    chars = []
+    for arg in args:
+        chars.append(chr(arg.as_number()))
+    return MUMPSExpression(''.join(chars))
+
+
+def intrinsic_extract(expr, low=1, high=None):
+    """Extract the first character from `expr` if neither `low` and `high`
+    are given. If just `low` is given, then return the character at that
+    index. If both `low` and `high` are given, return the substring from
+    `low` to `high` index."""
+    try:
+        if isinstance(low, int) and isinstance(high, int):
+            # Get the indices (noting that the low index is inclusive)
+            slen = len(str(expr))
+            low -= 1
+
+            # The low index cannot be higher than the high index
+            # The low index cannot be below 0 either
+            if low > high or low < 0:
+                raise IndexError
+
+            # The length cannot exceed the string length
+            if high > slen:
+                high = slen
+
+            return MUMPSExpression(str(expr)[low:high])
+        elif isinstance(low, int):
+            # Get the index
+            idx = low-1
+
+            # The low index cannot be below 0
+            if idx < 0:
+                raise IndexError
+
+            return MUMPSExpression(str(expr)[idx])
+        else:
+            return MUMPSExpression(str(expr)[0])
+    except IndexError:
+        return mumps_null()
+
+
+def intrinsic_find(expr, search, start=None):
+    """Find the first instance of the substring `search` in `expr` after
+    the`start`th character or from the beginning if `start` is None."""
+    try:
+        sub = str(search)
+        idx = mumpy.MUMPSExpression(
+            str(expr).index(sub, start) + len(sub) + 1)
+    except ValueError:
+        idx = mumpy.MUMPSExpression(0)
+
+    return idx
+
+
+def intrinsic_justify(expr, rspace, ndec=None):
+    """Right justify the value given in `expr` by the number of spaces in
+    `rspace`. If the optional `ndec` argument is given, then `expr` will
+    be treated as numeric and rounded to `ndec` decimal places or zero
+    padded if there are not at least `ndec` decimal places."""
+    if ndec is not None:
+        expr = round(expr.as_number(), ndec)
+        s = str(expr).split(".")
+        dig, dec = len(s[0]), len(s[1]) if len(s) > 1 else 0
+        expr = expr if dec >= ndec else str(expr).ljust(ndec + dig + 1, '0')
+
+    return MUMPSExpression(str(expr).rjust(rspace))
+
+
+def intrinsic_length(expr, char=None):
+    """Compute the length of the input `expr` as a string or, if `char` is
+    not None, count the number of occurrences of `char` in `expr`."""
+    if char is not None:
+        return MUMPSExpression(str(expr).count(str(char)))
+    return MUMPSExpression(len(str(expr)))
+
+
+def intrinsic_piece(expr, char, num=1):
+    """Give the `num`th piece of `expr` split about `char` (1 indexed)."""
+    try:
+        piece = str(expr).split(sep=str(char))[num-1]
+    except IndexError:
+        piece = mumpy.mumps_null()
+
+    return MUMPSExpression(piece)
+
+
+def intrinsic_random(num):
+    """Given `num`, return a random integer in the range [0, num). Raise
+    a syntax error if num is less than 1."""
+    if num < 1:
+        raise mumpy.MUMPSSyntaxError("RANDOM argument less than 1.",
+                                     err_type="$R ARG INVALID")
+
+    return MUMPSExpression(random.randint(0, num))
+
+
+def intrinsic_select(args):
+    """Given a list of `args` (a list of expression tuples), return the
+    expression in index 1 for the first expression in index 0 which
+    evaluates to True."""
+    for arg in args:
+        if arg[0]:
+            return arg[1]
+    raise mumpy.MUMPSSyntaxError("No select arguments evaluated true.",
+                                 err_type="NO $S ARGS TRUE")
+
+
+def intrinsic_translate(expr, trexpr, newexpr=None):
+    """Remove every character in `trexpr` from `expr` if `newexpr` is None,
+    or translate each character in `trexpr` to the identical index character
+    from `newexpr`. If `newexpr` is shorter than `trexpr`, then remove the
+    characters from `trexpr` which do not have siblings in `newexpr`."""
+    # We use the string and translation map for both paths
+    expr = str(expr)
+    trexpr = str(trexpr)
+    trmap = dict()
+
+    if newexpr is not None:
+        # Create a translation map between the two strings
+        # In this iteration, we map positionally identical characters
+        # between the input string and the replacement string
+        # Characters without matches are deleted (i.e. if the
+        # replacement string is shorter than the translation string)
+        newmap = str(newexpr)
+        for i, c in enumerate(trexpr):
+            try:
+                trmap[ord(c)] = ord(newmap[i])
+            except IndexError:
+                trmap[ord(c)] = None
+    else:
+        # Create a translation map which deletes each character
+        for c in trexpr:
+            trmap[ord(c)] = None
+
+    # Return the translated string
+    return MUMPSExpression(expr.translate(trmap))
+
+
+###################
 # SPECIAL VARIABLE FUNCTIONS
+# Special variables are values in MUMPS which return some state information
+# about the environment to the caller. They cannot be assigned to as a
+# normal variable and are always provided *by* the environment.
 ###################
 def horolog():
     """Return the MUMPS $H time and date variable."""
@@ -150,14 +365,32 @@ def horolog():
     tdelta = now - midnight
 
     # Produce the string
-    return "{d},{t}".format(
+    return MUMPSExpression("{d},{t}".format(
         d=daydelta.days,
         t=tdelta.seconds,
-    )
+    ))
+
+
+def current_job():
+    """Return the MUMPS $J value, which is the current process ID."""
+    return MUMPSExpression(os.getpid())
 
 
 ###################
 # LANGUAGE COMPONENTS
+# Language components are various components of the language which can be
+# assembled and executed by the parser to provide the action or behavior
+# specified in the ANSI/ISO M standard.
+#
+# Most of the components are designed in such a way that they can be
+# assembled or compounded from repeated calls to the __init__ function.
+#
+# For example, MUMPSExpressions compound (and, in effect, reduce) as you
+# perform operations on them. Clients should be mindful of this behavior
+# as it can produce unexpected results. This has the effect of, like
+# quantum physics, changing the state of the element as you examine it.
+# For this reason, some components provide '''SAFE''' functions which
+# do not modify the component in place.
 ###################
 class MUMPSLine:
     """Represent a full line of MUMPS code."""
@@ -371,11 +604,6 @@ class MUMPSExpression:
         contents of the current expression."""
         return int(str(self) == str(MUMPSExpression(other)))
 
-    ###################
-    # UNSAFE FUNCTIONS
-    # These functions WILL MODIFY THE EXISTING EXPRESSION. They compute
-    # the reduced expression into the existing expression and return self.
-    ###################
     def __getitem__(self, item):
         """Enable MUMPSExpressions to be subscriptable."""
         return self.expr.__getitem__(item)
@@ -387,6 +615,10 @@ class MUMPSExpression:
     def __bool__(self):
         """Return True if this expression evaluates to true."""
         return bool(self.as_number())
+
+    def __hash__(self):
+        """Return the hash of the current value."""
+        return hash(str(self))
 
     def __str__(self):
         """Return the string value of the expression."""
@@ -405,6 +637,11 @@ class MUMPSExpression:
             bool=bool(self)
         )
 
+    ###################
+    # UNSAFE FUNCTIONS
+    # These functions WILL MODIFY THE EXISTING EXPRESSION. They compute
+    # the reduced expression into the existing expression and return self.
+    ###################
     def __eq__(self, other):
         """Return 1 if both MUMPS expressions are equal."""
         self.expr = int(str(self) == str(MUMPSExpression(other)))

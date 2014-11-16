@@ -46,6 +46,8 @@ class MUMPSLexer:
         'else': 'ELSE',
         'c': 'CLOSE',
         'close': 'CLOSE',
+        'o': 'OPEN',
+        'open': 'OPEN',
         'l': 'LOCK',
         'lock': 'LOCK',
         'm': 'MERGE',
@@ -84,7 +86,7 @@ class MUMPSLexer:
         '$fnumber': 'FNUMBER',
         '$g': 'GET',
         '$get': 'GET',
-        '$j': 'JUSTIFY',
+        '$j': 'JUSTIFY_DOLLARJ',
         '$justify': 'JUSTIFY',
         '$l': 'LENGTH',
         '$length': 'LENGTH',
@@ -92,7 +94,7 @@ class MUMPSLexer:
         '$name': 'NAME',
         '$o': 'ORDER',
         '$order': 'ORDER',
-        '$p': 'PIECE',
+        '$p': 'PIECE_PRINCIPAL',
         '$piece': 'PIECE',
         '$ql': 'QLENGTH',
         '$qlength': 'QLENGTH',
@@ -126,6 +128,11 @@ class MUMPSLexer:
     variables = {
         '$h': 'HOROLOG',
         '$horolog': 'HOROLOG',
+        '$io': 'DOLLARIO',
+        '$j': 'JUSTIFY_DOLLARJ',
+        '$job': 'DOLLARJ',
+        '$p': 'PRINCIPAL',
+        '$principal': 'PIECE_PRINCIPAL',
         '$t': 'TEST_TEXT',
         '$test': 'TEST',
         '$x': 'DOLLARX',
@@ -144,7 +151,7 @@ class MUMPSLexer:
     )
 
     # List of all valid tokens
-    tokens = (
+    tokens = tuple(set((
         'PLUS', 'MINUS', 'TIMES', 'DIVIDE',
         'IDIVIDE', 'EQUALS', 'EXPONENT',
         'COMMENT', 'STRING', 'NUMBER',
@@ -154,7 +161,7 @@ class MUMPSLexer:
         'SPACE', 'CARET', 'COLON', 'EXTRINSIC',
         'INDIRECTION', 'CONTAINS', 'FOLLOWS',
         'PATTERN', 'PERIOD', 'SYMBOL'
-    ) + keyword_tokens + intrinsic_tokens + variable_tokens + errors
+    ) + keyword_tokens + intrinsic_tokens + variable_tokens + errors))
 
     ###################
     # COMMAND STATE
