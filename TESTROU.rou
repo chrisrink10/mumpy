@@ -1,0 +1,228 @@
+ ;**************************
+ ;* ANSI M Level Unit Test
+ ;**************************
+ ; Author: Chris Rink
+ ;
+TESTROU ;
+ n fails
+ ;
+ ; Nice welcome message before the beat drops
+ w "---------------------------------------------------------"
+ w "Welcome to MUMPy!"
+ w "This script will run the MUMPS-side Unit Tests for MUMPy."
+ w "---------------------------------------------------------"
+ w "Hold on..."
+ ;
+ ; Check that EQUALS comparisons are working, quit if not.
+ q:($$TestEquals())
+ ;
+ ; Perform tests
+ s fails=fails+$$TestArithmetic()
+ s fails=fails+$$TestIfElse()
+ s fails=fails+$$TestPointerArgs()
+ ;
+ ; Report the results
+ w "---------------------------------------------------------"
+ w:(fails=1) "There was 1 test which failed."
+ w:(fails>1) "There were "_fails_" tests which failed."
+ w:(fails=0) "Success!"
+ w "---------------------------------------------------------"
+ q
+ ;
+ ;**************************
+ ;* Test utility function
+ ;**************************
+ ; Input the result from the test and the expected value.
+ ; Pass in the failure count as a pointer and an error message.
+ ; If the test fails, the failure count will increment and the
+ ; message will be output to the current device.
+EvalTest(res,exp,fails,msg) ;
+ q:(res=exp)
+ s fails=fails+1
+ w msg_" >>> res="_res_" exp="_exp
+ q
+ ;
+ ;**************************
+ ;* Equals Tests
+ ;**************************
+ ; The rest of the tests are invalid if equals doesn't work since we
+ ; use the equals and not equals operators to check if a test succeeded.
+TestEquals() ;
+ n val,msg
+ s msg="Equals failed. Quitting"
+ i '(1=1) w msg q 1
+ s val=(1'=1)
+ i val=1 w msg q 1
+ q 0
+ ;
+ ;**************************
+ ;* Expression Tests
+ ;**************************
+TestArithmetic() ;
+ n res,exp,fail,msg
+ w "Testing arithmetic..."
+ ;
+ ; Test unary PLUS operators
+ s msg=" - A unary PLUS operator failed"
+ d EvalTest(+1,1,.fail,msg)
+ d EvalTest(+"27 apples",27,.fail,msg)
+ d EvalTest(+++---+--+3,-3,.fail,msg)
+ d EvalTest(+"+++---+--+3",-3,.fail,msg)
+ d EvalTest(+"+++---+--+3.5",-3.5,.fail,msg)
+ d EvalTest(+"+++---+--+3.5.5",-3.5,.fail,msg)
+ ;
+ ; Test unary MINUS operators
+ s msg=" - A unary MINUS operator failed"
+ d EvalTest(-1,-1,.fail,msg)
+ d EvalTest(-"27 apples",-27,.fail,msg)
+ d EvalTest(+++--+--+3,3,.fail,msg)
+ d EvalTest(-"+++---+--+3",3,.fail,msg)
+ d EvalTest(-"+++---+--+3.5",3.5,.fail,msg)
+ d EvalTest(-"+++---+--+3.5.5",3.5,.fail,msg)
+ ;
+ ; Test addition
+ s msg=" - An addition operation failed"
+ d EvalTest(1+4,5,.fail,msg)
+ d EvalTest((-3)+(-4),-7,.fail,msg)
+ d EvalTest("2 apples"+"3 oranges",5,.fail,msg)
+ ;
+ ; Test subtraction
+ s msg=" - A subtraction operation failed"
+ d EvalTest(1-4,-3,.fail,msg)
+ d EvalTest(7-2,5,.fail,msg)
+ d EvalTest("5 apples"-"3 oranges",2,.fail,msg)
+ ;
+ ; Test multiplication
+ s res=3*3,exp=9
+ i (res'=exp) s fail=fail+1 w "Multiplication failed."
+ s res=7.5*2,exp=15
+ i (res'=exp) s fail=fail+1 w "Multiplication failed."
+ s res=-2.5*2.5,exp=-6.25
+ i (res'=exp) s fail=fail+1 w "Multiplication failed."
+ s res=2.5*-2.5,exp=-6.25
+ i (res'=exp) s fail=fail+1 w "Multiplication failed."
+ s res=(-3)*(-4),exp=12
+ i (res'=exp) s fail=fail+1 w "Multiplication failed."
+ s res="5 apples"*"3 oranges",exp=15
+ i (res'=exp) s fail=fail+1 w "Multiplication failed."
+ ;
+ ; Test division
+ s res=9/3,exp=3
+ i (res'=exp) s fail=fail+1 w "Division failed."
+ s res=5/2,exp=2.5
+ i (res'=exp) s fail=fail+1 w "Division failed."
+ s res=5/-2,exp=-2.5
+ i (res'=exp) s fail=fail+1 w "Division failed."
+ s res=-5/2,exp=-2.5
+ i (res'=exp) s fail=fail+1 w "Division failed."
+ s res=(-3)*(-4),exp=12
+ i (res'=exp) s fail=fail+1 w "Division failed."
+ s res="5 apples"*"3 oranges",exp=15
+ i (res'=exp) s fail=fail+1 w "Division failed."
+ ;
+ ; Test integer division
+ s res=9\3,exp=3
+ i (res'=exp) s fail=fail+1 w "Integer division failed."
+ s res=5\2,exp=2
+ i (res'=exp) s fail=fail+1 w "Integer division failed."
+ s res=-5\2,exp=-2
+ i (res'=exp) s fail=fail+1 w "Integer division failed."
+ s res=-1\2,exp=0
+ i (res'=exp) s fail=fail+1 w "Integer division failed."
+ s res=-1\2,exp=0
+ i (res'=exp) s fail=fail+1 w "Integer division failed."
+ s res=1\3*3,exp=0
+ i (res'=exp) s fail=fail+1 w "Integer division failed."
+ ;
+ ; Test modulo operator
+ s res=-9#5,exp=1
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s res=-3#5,exp=2
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s res=-6#-5,exp=-1
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s res=4#-5,exp=-1
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ ;
+ ; Test power operator
+ s res=32**.2,exp=2
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s res=2**5,exp=32
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s res=16**.25,exp=2
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s res=2**3**4,exp=4096
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s res=4**(-2),exp=.0625
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s res=27**(1/3),exp=3
+ i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ ;
+ q +fail
+ ;
+ ;**************************
+ ;* Logic Tests
+ ;**************************
+TestLogic() ;
+ q 0
+ ;
+ ;**************************
+ ;* String Operator Tests
+ ;**************************
+TestStringOp() ;
+ q 0
+ ;
+ ;**************************
+ ;* Intrinsic Tests
+ ;**************************
+TestIntrinsic() ;
+ q 0
+ ;
+ ;**************************
+ ;* IF/ELSE Tests
+ ;**************************
+TestIfElse() ;
+ n val,fail
+ w "Testing IF/ELSE..."
+ ;
+ ; Verify that ELSE doesn't fire initially ($T is true on env start)
+ e  s fail=fail+1 w "$T not properly set."
+ ;
+ ; Verify that ELSE doesn't fire if $T is true
+ i 1 s val=0
+ e  s fail=fail+1 w "ELSE failed."
+ ;
+ ; Verify that an argumentless IF will succeed since $T is still true
+ i  s val=1
+ i val'=1 s fail=fail+1 w "Argumentless IF failed."
+ ;
+ ; Verify that ELSE does fire if $T is false
+ i 0 s fail=fail+1 w "IF failed."
+ e  s val=0
+ ;
+ q +fail
+ ;
+ ;**************************
+ ;* Pointer Argument Tests
+ ;**************************
+TestPointerArgs() ;
+ n val
+ w "Testing pointer arguments..."
+ s val=1
+ d testArgs(.val)
+ q:(val=6) 0
+ w "Pointer argument test failed."
+ q 1
+ ;
+testArgs(arg) ;
+ s arg=arg+1
+ d testArgs2(.arg)
+ q
+testArgs2(arg) ;
+ s arg=arg+1
+ d testArgs3(.arg)
+ q
+testArgs3(param) ;
+ s param=param*2
+ q
+ q
