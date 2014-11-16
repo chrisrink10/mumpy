@@ -144,7 +144,7 @@ class MUMPSFile:
             # Output the line list
             f.write('lines = [\n')
             for line in lines:
-                f.write("    '''{line}''',\n".format(line=line))
+                f.write("    r'''{line}''',\n".format(line=line))
             f.write(']\n')
 
     def name(self):
