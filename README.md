@@ -11,7 +11,7 @@ Features:
 ## Installation
 MUMPy can be installed using `pip`:
 
-    pip github.com/chrisrink10/mumpy
+    pip install git+git://github.com/chrisrink10/mumpy@master
 
 ## Use
 To use MUMPy, simply fire it up from the command line: `mumpy.py`. 
@@ -75,6 +75,8 @@ The conversions can be seen as below:
     
     mumpy > write +"27 dollars"
     27
+    mumpy > write +"I need 27 dollars"
+    0
     mumpy > write "27 dollars"+"12 dollars"
     39
     mumpy > write +"+---3.5.5"
