@@ -1,2 +1,3 @@
 mumpy
 ply>=3.4
+blist>=1.3.6

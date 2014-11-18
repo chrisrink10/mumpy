@@ -194,7 +194,7 @@ class MUMPSEnvironment:
             return self._get_pointer(item[0], self._cur)[1]
 
         # Otherwise, we can just return the scalar value
-        return item[1]
+        return item[1].get(key)
 
     def _get_pointer(self, key, end):
         """Private pointer get function needed to recurse down the stack
@@ -251,23 +251,32 @@ class MUMPSEnvironment:
 
         for frame in reversed(self._stack[start:end]):
             if key in frame:
-                frame[key] = (pointer, value)
+                var = frame[key][1]
+                var.set(key, value)
+                frame[key] = (pointer, var)
                 return
 
-        self._stack[self._cur][key] = (pointer, value)
+        var = mumpy.MUMPSLocal()
+        var.set(key, value)
+        self._stack[self._cur][key] = (pointer, var)
 
     def new(self, key):
         """Create a new symbol with the given name on the current stack
         level with a None value."""
         if not key in self._stack[self._cur]:
-            self._stack[self._cur][key] = (None, mumpy.mumps_null())
+            self._stack[self._cur][key] = (None,
+                                           mumpy.MUMPSLocal(mumpy.mumps_null()))
 
     def kill(self, key):
         """Kill a symbol with the given key at the highest stack level we
         can find it at. If that symbol doesn't exist, do nothing."""
         for frame in reversed(self._stack):
             if key in frame:
-                del frame[key]
+                if key.subscripts() is None:
+                    del frame[key]
+                else:
+                    var = frame[key][1]
+                    var.delete(key)
                 return
 
     def kill_all(self):
@@ -287,6 +296,7 @@ class MUMPSEnvironment:
 
     def print(self):
         """Print the stack frames in reverse order."""
+        #TODO: fix this to work with MUMPSLocals
         for i, frame in enumerate(reversed(self._stack)):
             self.writeln("[Stack Frame {}]".format(i))
             for k, v in frame.items():

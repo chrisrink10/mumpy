@@ -6,6 +6,7 @@ import string
 import os
 import time
 import traceback
+import blist
 import mumpy
 
 
@@ -775,13 +776,23 @@ def mumps_false():
 
 class MUMPSIdentifier:
     """Represents a MUMPS identifier in code."""
-    def __init__(self, ident, env):
+    def __init__(self, ident, env, subscripts=None):
         # Handle the case that we may be passed another instance of
         # a MUMPSIdentifier object
         if isinstance(ident, MUMPSIdentifier):
             self._ident = str(ident._ident)
         else:
             self._ident = str(ident)
+
+        # Make sure we got valid subscripts
+        if not isinstance(subscripts, (type(None), MUMPSArgumentList)):
+            raise MUMPSSyntaxError("Invalid subscript list given.",
+                                   err_type="INVALID SUBSCRIPTS")
+        if subscripts is not None and mumps_null() in subscripts:
+            raise MUMPSSyntaxError("Null subscript given for identifier.",
+                                   err_type="NULL SUBSCRIPT")
+
+        self._subscripts = subscripts
 
         # Accept an environment so we can resolve our own value
         self._env = env
@@ -814,6 +825,10 @@ class MUMPSIdentifier:
     def value(self):
         """Return the resolved value of this Identifier."""
         return self._env.get(self)
+
+    def subscripts(self):
+        """Return the subscripts associated with this Identifier."""
+        return self._subscripts
 
     def is_valid(self):
         """Returns True if this is a valid MUMPS identifier."""
@@ -865,10 +880,150 @@ class MUMPSArgumentList:
         """Return the argument at the specified index."""
         return self.list[item]
 
+    def __contains__(self, item):
+        return item in self.list
+
     def reverse(self):
         """Return the reverse of the argument list."""
         self.list.reverse()
         return self
+
+
+class MUMPSLocal:
+    """Wrap a blist.sorteddict to provide MUMPS local variable functionality."""
+    def __init__(self, value=None):
+        self._b = blist.sorteddict()
+        self._n = 0
+        if value is not None:
+            self._b[""] = value
+
+    def __repr__(self):
+        return "MUMPSLocal({root}, {n})".format(
+            root=self._b[""],
+            n=self._n,
+        )
+
+    def __str__(self):
+        """Return the value of the root node."""
+        return str(self._b[""])
+
+    def get(self, ident):
+        """Return the value given by the input identifier. If the identifier
+        has no subscripts, then return the root node. If the subscript or
+        subscripts don't exist, simply return null."""
+        try:
+            s = ident.subscripts() if not isinstance(ident, str) else None
+
+            # Return the root value
+            if s is None:
+                return self._b[""]
+
+            # Otherwise, return the value at the requested subscripts
+            b = self._b
+            for sub in s:
+                b = b[str(sub)]
+            return b[""]
+        except AttributeError:
+            raise MUMPSSyntaxError("Invalid identifier given for this var.",
+                                   "INVALID IDENTIFIER")
+        except KeyError:
+            return mumps_null()
+
+    def set(self, ident, value):
+        """Set the value at the given identifier. If the identifier has no
+        subscripts, then set the root node."""
+        try:
+            s = ident.subscripts() if not isinstance(ident, str) else None
+
+            # Set the root value
+            if s is None:
+                self._b[""] = value
+                return
+
+            # Otherwise, set the value at the requested subscripts
+            b = self._b
+            for sub in s:
+                ss = str(sub)
+                try:
+                    b = b[ss]
+                except KeyError:
+                    b[ss] = blist.sorteddict()
+                    b = b[ss]
+            b[""] = value
+        except AttributeError:
+            raise MUMPSSyntaxError("Invalid identifier given for this var.",
+                                   "INVALID IDENTIFIER")
+
+    def delete(self, ident):
+        """Delete the value at the given identifier. If the root node is
+        deleted, then every child node is also deleted. As a consequence of
+        this behavior, the environment actually performs the delete for
+        that particular case. This means that we should always have a list
+        of subscripts."""
+        try:
+            s = ident.subscripts()
+
+            if len(s) < 1:
+                raise MUMPSSyntaxError("Variable with no subscripts given.",
+                                       err_type="INVALID SUBSCRIPTS")
+
+            self._delete(self._b, s)
+        except AttributeError:
+            raise MUMPSSyntaxError("Invalid identifier given for this var.",
+                                   err_type="INVALID IDENTIFIER")
+
+    def _delete(self, d, subscripts):
+        """Recursive delete helper function. Since MUMPS kill command permits"""
+        l = len(subscripts)
+
+        # If there is only one subscript, delete that node and return
+        if l == 1:
+            try:
+                s = str(subscripts[0])
+                del d[s]
+            except KeyError:
+                pass
+
+            return
+
+        # If there are more subscripts, recurse
+        try:
+            s = str(subscripts[0])
+            self._delete(d[s], subscripts[1:])
+        except KeyError:
+            pass
+
+    def order(self, ident):
+        """Return an iterator for the given identifier. If the identifier
+        has no subscripts, then raise a syntax error."""
+        try:
+            s = ident.subscripts() if not isinstance(ident, str) else None
+
+            # Set the root value
+            if s is None:
+                raise MUMPSSyntaxError("Cannot $ORDER over a scalar value.",
+                                       err_type="INVALID $ORDER PARAM")
+
+            # Otherwise, set the value at the requested subscripts
+            b = self._b
+            for sub in s:
+                ss = str(sub)
+                try:
+                    b = b[ss]
+                except KeyError:
+                    b[ss] = blist.sorteddict()
+                    b = b[ss]
+            return b
+        except AttributeError:
+            raise MUMPSSyntaxError("Invalid identifier given for this var.",
+                                   "INVALID IDENTIFIER")
+
+    def pprint_str(self):
+        """Return a pretty-print style string which can be output when
+        the user issues an argumentless `WRITE` command (spill symbols)."""
+        #TODO: implement this
+        out = ""
+        return out
 
 
 class MUMPSSyntaxError(Exception):

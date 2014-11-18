@@ -264,8 +264,8 @@ class MUMPSParser:
         p[0] = mumpy.MUMPSCommand(lang.else_cmd, None, self.env)
 
     def p_kill_command(self, p):
-        """kill_command : KILL SPACE symbol_list
-                        | KILL COLON expression SPACE symbol_list"""
+        """kill_command : KILL SPACE variable_list
+                        | KILL COLON expression SPACE variable_list"""
         # Handle the post-conditional if it exists
         if len(p) > 4:
             post = p[3]
@@ -558,6 +558,14 @@ class MUMPSParser:
         else:
             p[0] = mumpy.MUMPSArgumentList(p[1])
 
+    def p_variable_list(self, p):
+        """variable_list : variable_list COMMA variable
+                         | variable"""
+        if len(p) == 4:
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = mumpy.MUMPSArgumentList(p[1])
+
     def p_argument_list(self, p):
         """argument_list : argument_list COMMA expression
                          | expression"""
@@ -579,7 +587,7 @@ class MUMPSParser:
         p[0] = (p[1], p[3])
 
     def p_assignment(self, p):
-        """assignment : identifier EQUALS expression"""
+        """assignment : variable EQUALS expression"""
         p[0] = (p[1], p[3])
 
     def p_assignment_list(self, p):
@@ -649,7 +657,7 @@ class MUMPSParser:
                       | string_concat
                       | numeric_op
                       | expression_parens
-                      | identifier
+                      | local_var
                       | function_call
                       | intrinsic_func
                       | special_var"""
@@ -705,6 +713,28 @@ class MUMPSParser:
             ident=p[1],
             #args=p[3] if len(p) == 5 else ""
         ))
+
+    def p_variable(self, p):
+        """variable : local_var
+                    | global_var"""
+        p[0] = p[1]
+
+    def p_local_var(self, p):
+        """local_var : identifier LPAREN argument_list RPAREN
+                     | identifier"""
+        if len(p) == 5:
+            p[0] = mumpy.MUMPSIdentifier(p[1], self.env, subscripts=p[3])
+        else:
+            p[0] = mumpy.MUMPSIdentifier(p[1], self.env)
+
+    def p_global_var(self, p):
+        """global_var : routine_global LPAREN argument_list RPAREN
+                      | routine_global"""
+        #if len(p) == 5:
+        #    p[0] = mumpy.MUMPSIdentifier(p[0], self.env, subscripts=p[3])
+        #else:
+        #    p[0] = mumpy.MUMPSIdentifier(p[1], self.env)
+        pass
 
     ###################
     # INTRINSICS
