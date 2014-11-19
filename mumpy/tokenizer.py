@@ -1,4 +1,10 @@
-"""MUMPy Tokenizer"""
+"""MUMPy Tokenizer
+
+The MUMPS tokenizer written in PLY format.
+
+Licensed under a BSD license. See LICENSE for more information.
+
+Author: Christopher Rink"""
 import re
 import ply.lex as lex
 import mumpy

@@ -1,4 +1,8 @@
-"""MUMPy package"""
+"""MUMPy package
+
+Licensed under a BSD license. See LICENSE for more information.
+
+Author: Christopher Rink"""
 from mumpy.compiler import (MUMPSFile,
                             MUMPSCompileError)
 from mumpy.env import MUMPSEnvironment

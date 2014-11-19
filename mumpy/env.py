@@ -1,7 +1,12 @@
 """MUMPy environment
 
-Provide environment stack management and other environment functions
-such as maintaining the current input and output devices."""
+The MUMPS environment provides stack management and other environment or
+process-wide functions such as maintaining the current input and output
+devices.
+
+Licensed under a BSD license. See LICENSE for more information.
+
+Author: Christopher Rink"""
 __author__ = 'christopher'
 import sys
 import traceback

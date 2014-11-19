@@ -1,4 +1,14 @@
-"""MUMPY MUMPS language components"""
+"""MUMPY Language Components
+
+The functions and objects in this file represent various functional parts
+of the MUMPS language (such as expressions and commands). The parser
+pieces all of these parts together into larger components and then
+executes them. In that way, each component is designed to work together
+to achieve the actions dictated by the M standard.
+
+Licensed under a BSD license. See LICENSE for more information.
+
+Author: Christopher Rink"""
 __author__ = 'christopher'
 import datetime
 import random

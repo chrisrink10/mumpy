@@ -1,4 +1,12 @@
-"""MUMPy Interpreter"""
+"""MUMPy Interpreter
+
+The functions in this module represent various functions that may need
+to be carried out from the command line (including starting the REPL
+and compiling and executing a routine file).
+
+Licensed under a BSD license. See LICENSE for more information.
+
+Author: Christopher Rink"""
 import readline     # Used by Python's input() to provide readline functionality
 import mumpy
 

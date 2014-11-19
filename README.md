@@ -43,7 +43,9 @@ example given below.
 MUMPS commands accept zero or more arguments in a comma delimited list. The
 argument list should be separated from the command by a single space. 
 The value of the arguments and the number that each command accepts vary
-by the command and function. 
+by the command and function. The list elements in the argument list
+should not be separated by any space characters - spaces are, of course,
+allowed in any string literals in the argument list.
 
 Commands which accept zero arguments should still be followed by one space and,
 if followed by another command on the same line, would be followed by the
@@ -56,6 +58,15 @@ Since MUMPS is a programming language, it would be only appropriate to have
 a "Hello, world!" example:
 
     mumpy > write "Hello, world!"
+    Hello, world!
+    
+Here is the same example but using an argument list instead of a single
+string literal argument. Using an argument list for a command is merely
+syntactic sugar for performing the command twice in a row:
+    
+    mumpy > write "Hello, ","world!"
+    Hello, world!
+    mumpy > write "Hello, " write "world!"
     Hello, world!
 
 ### MUMPS Data Types and Expressions
@@ -94,7 +105,46 @@ and modify that value. In MUMPS, it is true that every routine in a process
 (and indeed on the entire system) can share access to these globals. This is
 because MUMPS global variables are actually persistent. MUMPS stores globals
 on the hard-drive of the current operating environment, meaning that these
-values survive the lifetime of the current process.
+values survive the lifetime of the current process. MUMPS provides the 
+facilities to lock and unlock global variable nodes to permit safe 
+concurrent usage.
+ 
+In their most simple case, these variables act as scalar values. However, 
+both local and global variables act as multi-dimensional sparse arrays without'
+any special handling by the programmer. Indeed this is one of the defining
+features of MUMPS. The array nodes may be strings or numbers:
+
+    mumpy > set person=45
+    mumpy > set person("name")="Chris Smith"
+    mumpy > set person("name","first")="Chris"
+    mumpy > set person("name","last")="Smith"
+    mumpy > set person("child",1)="Celia Smith"
+    mumpy > set person("child",2)="Cameron Smith"
+
+MUMPS stores the given array nodes in sorted order and provides the `$ORDER`
+intrinsic function to allow programmers to step through array nodes:
+
+    mumpy > set next=$ORDER(person("child",""))
+    mumpy > write person("child",next)
+    "Celia Smith"
+    mumpy > set next=$ORDER(person("child",next))
+    mumpy > write person("child",next)
+    "Cameron Smith"
+    
+The examples above show operations on local variables. The same operations
+can easily be performed on global variables merely by prefixing the name of
+the variable with a `^` caret character; `^person` is a global variable, 
+whereas `person` is a local variable.     
+
+Programmers in MUMPS should also be mindful of the rather simplistic and
+loose scoping rules that exist in MUMPS. MUMPS does _not_ enforce strict 
+scoping rules. If a function or subroutine references a variable name not
+explicitly defined on the current stack frame, MUMPS will search back through
+the stack in reverse order and provide the caller with the first instance
+of a variable with the given name. Programmers may use the `NEW` command
+in a stack frame to explicitly declare a variable with the given name on
+the current stack frame. This variable will be deleted from the stack once
+the function or subroutine completes and MUMPS unwinds its stack frame.
 
 ### Input and Output
 By default, the REPL and the routine interpreter set the Standard Input and

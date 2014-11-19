@@ -1,4 +1,10 @@
-"""MUMPy Parser"""
+"""MUMPy Parser
+
+The MUMPS parsing rules written as dictated by the PLY package.
+
+Licensed under a BSD license. See LICENSE for more information.
+
+Author: Christopher Rink"""
 import logging
 import ply.yacc as yacc
 import mumpy

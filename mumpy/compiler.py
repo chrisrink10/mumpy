@@ -1,7 +1,12 @@
 """MUMPy Routine Compiler
 
-Compile a MUMPS routine into a Python intermediate form that the
-interpreter can use."""
+The MUMPy compiler converts a MUMPS routine into a Python intermediate
+module form that the interpreter can interact with using more standard
+Python idioms.
+
+Licensed under a BSD license. See LICENSE for more information.
+
+Author: Christopher Rink"""
 __author__ = 'christopher'
 import importlib
 import os.path
