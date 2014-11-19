@@ -178,12 +178,20 @@ class MUMPSParser:
         p[0] = p[3]
 
     def p_command_line(self, p):
-        """command_line : SPACE valid_input"""
+        """command_line : SPACE valid_input SPACE COMMENT
+                        | SPACE valid_input multiple_spaces COMMENT
+                        | SPACE valid_input multiple_spaces
+                        | SPACE valid_input"""
         p[0] = p[2]
 
     def p_comment_line(self, p):
         """comment_line : SPACE comment"""
         p[0] = p[2]
+
+    def p_multiple_spaces(self, p):
+        """multiple_spaces : multiple_spaces SPACE
+                           | SPACE"""
+        pass
 
     def p_comment(self, p):
         """comment : COMMENT"""
@@ -203,7 +211,6 @@ class MUMPSParser:
 
     def p_any_command(self, p):
         """any_command : command
-                       | command SPACE
                        | command_no_arg"""
         p[0] = p[1]
 

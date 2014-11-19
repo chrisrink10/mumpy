@@ -473,10 +473,9 @@ class MUMPSCommand:
 
     def __repr__(self):
         """Return a string representation of this command."""
-        return "MUMPSCommand({cmd}, {args}, {env}, {post})".format(
+        return "MUMPSCommand({cmd}, {args}, {post})".format(
             cmd=self.cmd,
             args=self.args,
-            env=self.env,
             post=self.post
         )
 
@@ -529,14 +528,12 @@ class MUMPSFuncSubCall:
             raise MUMPSSyntaxError("No routine found.", err_type="NO LINE")
 
     def __repr__(self):
-        return ("MUMPSFuncSubCall({tag}, {args}, {env}, "
-                "{as_func}, {rou})".format(
-                    tag=self.tag,
-                    args=self.args,
-                    env=self.env,
-                    as_func=self.is_func,
-                    rou=self.rou,
-                ))
+        return "MUMPSFuncSubCall({tag}, {args}, {as_func}, {rou})".format(
+            tag=self.tag,
+            args=self.args,
+            as_func=self.is_func,
+            rou=self.rou,
+        )
 
     def execute(self):
         """Execute the subroutine or function call."""
@@ -816,9 +813,8 @@ class MUMPSIdentifier:
 
     def __repr__(self):
         """Return a string representation of this object."""
-        return "MUMPSIdentifier('{ident}',{env},{val})".format(
+        return "MUMPSIdentifier('{ident}',{val})".format(
             ident=self._ident,
-            env=self._env,
             val=self.value()
         )
 
@@ -853,6 +849,9 @@ class MUMPSNone:
     has finished and that the parser should return."""
     def __init__(self):
         pass
+
+    def __repr__(self):
+        return "MUMPSNone()"
 
 
 class MUMPSArgumentList:
@@ -1021,7 +1020,7 @@ class MUMPSLocal:
     def pprint_str(self):
         """Return a pretty-print style string which can be output when
         the user issues an argumentless `WRITE` command (spill symbols)."""
-        #TODO: implement this
+        #TODO.md: implement this
         out = ""
         return out
 
@@ -1037,7 +1036,7 @@ class MUMPSSyntaxError(Exception):
             self.msg = str(err)
             self.err_type = "UNKNOWN" if err_type is None else err_type
             self.line = line
-            #TODO: Remove this print_exc call
+            #TODO.md: Remove this print_exc call
             try:
                 traceback.print_exc()
             except:

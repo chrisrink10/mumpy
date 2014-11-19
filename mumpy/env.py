@@ -163,7 +163,7 @@ class MUMPSEnvironment:
                 # Create the pointer if necessary
                 v = func.args[i]
                 if isinstance(v, mumpy.MUMPSPointerIdentifier):
-                    in_arg = v.value()
+                    in_arg = None
                     ptr = v
                 else:
                     in_arg = str(mumpy.MUMPSExpression(v))
@@ -171,7 +171,10 @@ class MUMPSEnvironment:
                 in_arg = mumpy.mumps_null()
 
             # New the argument list name
-            self.new(ident)
+            if ptr is None:
+                self.new(ident)
+            else:
+                self._new_pointer(ident)
 
             # Set the new value
             self._set(ident, in_arg, pointer=ptr)
@@ -191,15 +194,18 @@ class MUMPSEnvironment:
         # actual value from the stack it resides in
         item = self._get(key)
         if item[0] is not None:
-            return self._get_pointer(item[0], self._cur)[1]
+            item = self._get_pointer(item[0], self._cur)
 
         # Otherwise, we can just return the scalar value
-        return item[1].get(key)
+        try:
+            return item[1].get(key)
+        except AttributeError:
+            return mumpy.mumps_null()
 
     def _get_pointer(self, key, end):
         """Private pointer get function needed to recurse down the stack
         if a pointer points back several levels on the stack."""
-        item = self._get(key)
+        item = self._get(key, end=end)
         if item[0] is not None and (end-1) >= 0:
             return self._get_pointer(item[0], end-1)
 
@@ -251,9 +257,14 @@ class MUMPSEnvironment:
 
         for frame in reversed(self._stack[start:end]):
             if key in frame:
-                var = frame[key][1]
-                var.set(key, value)
-                frame[key] = (pointer, var)
+                try:
+                    # The variable is a value, update its value
+                    var = frame[key][1]
+                    var.set(key, value)
+                    frame[key] = (pointer, var)
+                except AttributeError:
+                    # The variable is a pointer, update its pointer
+                    frame[key] = (pointer, None)
                 return
 
         var = mumpy.MUMPSLocal()
@@ -262,10 +273,17 @@ class MUMPSEnvironment:
 
     def new(self, key):
         """Create a new symbol with the given name on the current stack
-        level with a None value."""
+        level with a null value."""
         if not key in self._stack[self._cur]:
             self._stack[self._cur][key] = (None,
                                            mumpy.MUMPSLocal(mumpy.mumps_null()))
+
+    def _new_pointer(self, key):
+        """Create a new symbol with the given name on the current stack
+        level with a None value, which is used for values which are strictly
+        pointers."""
+        if not key in self._stack[self._cur]:
+            self._stack[self._cur][key] = (None, None)
 
     def kill(self, key):
         """Kill a symbol with the given key at the highest stack level we
@@ -296,7 +314,7 @@ class MUMPSEnvironment:
 
     def print(self):
         """Print the stack frames in reverse order."""
-        #TODO: fix this to work with MUMPSLocals
+        #TODO.md: fix this to work with MUMPSLocals
         for i, frame in enumerate(reversed(self._stack)):
             self.writeln("[Stack Frame {}]".format(i))
             for k, v in frame.items():

@@ -15,11 +15,17 @@ TESTROU ;
  ;
  ; Check that EQUALS comparisons are working, quit if not.
  q:($$TestEquals())
+ q:($$TestLogic())
+ ;
+ ; Likewise, we will need Regular and Pointer function arguments to work
+ q:($$TestRegularArgs())
+ q:($$TestPointerArgs())
  ;
  ; Perform tests
  s fails=fails+$$TestArithmetic()
+ s fails=fails+$$TestStringOp()
  s fails=fails+$$TestIfElse()
- s fails=fails+$$TestPointerArgs()
+ s fails=fails+$$TestIntrinsic()
  ;
  ; Report the results
  w "---------------------------------------------------------"
@@ -53,6 +59,102 @@ TestEquals() ;
  i '(1=1) w msg q 1
  s val=(1'=1)
  i val=1 w msg q 1
+ q 0
+ ;
+ ;**************************
+ ;* Logic Tests
+ ;**************************
+TestLogic() ;
+ n val
+ ;
+ w "Testing logical NOT..."
+ s val='1 q:(val=1) 1
+ w "Testing logical NOT..."
+ s val='0 q:(val=0) 1
+ ;
+ w "Testing logical AND..."
+ s val=(1&1) q:(val=0) 1
+ s val=(1&0) q:(val=1) 1
+ s val=(0&0) q:(val=1) 1
+ ;
+ w "Testing logical NOT AND..."
+ s val=(1'&1) q:(val=1) 1
+ s val=(1'&0) q:(val=0) 1
+ s val=(0'&0) q:(val=0) 1
+ ;
+ w "Testing logical OR..."
+ s val=(1!1) q:(val=0) 1
+ s val=(1!0) q:(val=0) 1
+ s val=(0!0) q:(val=1) 1
+ ;
+ w "Testing logical NOT OR..."
+ s val=(1'!1) q:(val=1) 1
+ s val=(1'!0) q:(val=1) 1
+ s val=(0'!0) q:(val=0) 1
+ ;
+ q 0
+ ;
+ ;**************************
+ ;* Regular Argument Tests
+ ;**************************
+ ; We need to make sure that sub-nodes for values do not get passed in for
+ ; non-pointer types of arguments. Since the correct evaluation of these
+ ; tests depends on this, we need to check this early.
+TestRegularArgs() ;
+ n val,name,fail
+ w "Testing regular arguments..."
+ s val=1
+ s name="Chris"
+ s name("last")="Rink"
+ s fail=$$testRegArgs(val,name)
+ q:(fail=0) 0
+ w "[FAIL]"
+ q 1
+ ;
+testRegArgs(val,name) ;
+ q:(val'=1) 1
+ q:(name'="Chris") 1
+ q:(name("last")'="") 1
+ q 0
+ ;
+ ;**************************
+ ;* Pointer Argument Tests
+ ;**************************
+ ; Pointer arguments are also used for the test evaluator, so we'll need
+ ; to make sure that these work.
+TestPointerArgs() ;
+ n val,name
+ w "Testing pointer arguments..."
+ ;
+ ; Test that calling functions receive modifications to pointer arguments
+ s val=1
+ d testPtrArgs(.val)
+ i val'=6 w "[FAIL]" q 1
+ ;
+ ; Test that pointer arguments also pass the subnode access
+ s name="Chris"
+ s name("Last")="Rink"
+ s name("Last","Suffix")="Jr"
+ s name("MI")="L"
+ i $$testPtrArgs4(.name) w "[FAIL]" q 1
+ q 0
+ ;
+testPtrArgs(arg) ;
+ s arg=arg+1
+ d testPtrArgs2(.arg)
+ q
+testPtrArgs2(arg) ;
+ s arg=arg+1
+ d testPtrArgs3(.arg)
+ q
+testPtrArgs3(param) ;
+ s param=param*2
+ q
+testPtrArgs4(arg) ;
+ q:(arg'="Chris") 1
+ q:(arg("Last")'="Rink") 1
+ q:(arg("Last","Suffix")'="Jr") 1
+ q:(arg("MI")'="L") 1
  q 0
  ;
  ;**************************
@@ -93,78 +195,49 @@ TestArithmetic() ;
  d EvalTest("5 apples"-"3 oranges",2,.fail,msg)
  ;
  ; Test multiplication
- s res=3*3,exp=9
- i (res'=exp) s fail=fail+1 w "Multiplication failed."
- s res=7.5*2,exp=15
- i (res'=exp) s fail=fail+1 w "Multiplication failed."
- s res=-2.5*2.5,exp=-6.25
- i (res'=exp) s fail=fail+1 w "Multiplication failed."
- s res=2.5*-2.5,exp=-6.25
- i (res'=exp) s fail=fail+1 w "Multiplication failed."
- s res=(-3)*(-4),exp=12
- i (res'=exp) s fail=fail+1 w "Multiplication failed."
- s res="5 apples"*"3 oranges",exp=15
- i (res'=exp) s fail=fail+1 w "Multiplication failed."
+ s msg=" - Multiplication failed."
+ d EvalTest(3*3,9,.fail,msg)
+ d EvalTest(7.5*2,15,.fail,msg)
+ d EvalTest(-2.5*2.5,-6.25,.fail,msg)
+ d EvalTest(2.5*-2.5,-6.25,.fail,msg)
+ d EvalTest((-3)*(-4),12,.fail,msg)
+ d EvalTest("5 apples"*"3 oranges",15,.fail,msg)
  ;
  ; Test division
- s res=9/3,exp=3
- i (res'=exp) s fail=fail+1 w "Division failed."
- s res=5/2,exp=2.5
- i (res'=exp) s fail=fail+1 w "Division failed."
- s res=5/-2,exp=-2.5
- i (res'=exp) s fail=fail+1 w "Division failed."
- s res=-5/2,exp=-2.5
- i (res'=exp) s fail=fail+1 w "Division failed."
- s res=(-3)*(-4),exp=12
- i (res'=exp) s fail=fail+1 w "Division failed."
- s res="5 apples"*"3 oranges",exp=15
- i (res'=exp) s fail=fail+1 w "Division failed."
+ s msg=" - Division failed."
+ d EvalTest(9/3,3,.fail,msg)
+ d EvalTest(5/2,2.5,.fail,msg)
+ d EvalTest(5/-2,-2.5,.fail,msg)
+ d EvalTest(-5/2,-2.5,.fail,msg)
+ d EvalTest(1/128,0.0078125,.fail,msg)                  ; #TODO: handle decimal args with no leading zero
+ d EvalTest("15 apples"/"3 oranges",5,.fail,msg)
  ;
  ; Test integer division
- s res=9\3,exp=3
- i (res'=exp) s fail=fail+1 w "Integer division failed."
- s res=5\2,exp=2
- i (res'=exp) s fail=fail+1 w "Integer division failed."
- s res=-5\2,exp=-2
- i (res'=exp) s fail=fail+1 w "Integer division failed."
- s res=-1\2,exp=0
- i (res'=exp) s fail=fail+1 w "Integer division failed."
- s res=-1\2,exp=0
- i (res'=exp) s fail=fail+1 w "Integer division failed."
- s res=1\3*3,exp=0
- i (res'=exp) s fail=fail+1 w "Integer division failed."
+ s msg=" - Integer division failed."
+ d EvalTest(9\3,3,.fail,msg)
+ d EvalTest(5\2,2,.fail,msg)
+ d EvalTest(-5\2,-2,.fail,msg)
+ d EvalTest(1\2,0,.fail,msg)
+ d EvalTest(-1\2,0,.fail,msg)
+ d EvalTest(1\3*3,0,.fail,msg)
  ;
  ; Test modulo operator
- s res=-9#5,exp=1
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
- s res=-3#5,exp=2
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
- s res=-6#-5,exp=-1
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
- s res=4#-5,exp=-1
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s msg=" - Modulo operation failed."
+ d EvalTest(-9#5,1,.fail,msg)
+ d EvalTest(-3#5,2,.fail,msg)
+ d EvalTest(-6#-5,-1,.fail,msg)
+ d EvalTest(4#-5,-1,.fail,msg)
  ;
  ; Test power operator
- s res=32**.2,exp=2
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
- s res=2**5,exp=32
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
- s res=16**.25,exp=2
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
- s res=2**3**4,exp=4096
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
- s res=4**(-2),exp=.0625
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
- s res=27**(1/3),exp=3
- i (res'=exp) s fail=fail+1 w "Modulo operation failed."
+ s msg=" - Exponentiation failed."
+ d EvalTest(32**.2,2,.fail,msg)
+ d EvalTest(2**5,32,.fail,msg)
+ d EvalTest(16**.25,2,.fail,msg)
+ d EvalTest(2**3**4,4096,.fail,msg)
+ d EvalTest(4**(-2),0.0625,.fail,msg)
+ d EvalTest(27**(1/3),3,.fail,msg)
  ;
  q +fail
- ;
- ;**************************
- ;* Logic Tests
- ;**************************
-TestLogic() ;
- q 0
  ;
  ;**************************
  ;* String Operator Tests
@@ -202,27 +275,4 @@ TestIfElse() ;
  ;
  q +fail
  ;
- ;**************************
- ;* Pointer Argument Tests
- ;**************************
-TestPointerArgs() ;
- n val
- w "Testing pointer arguments..."
- s val=1
- d testArgs(.val)
- q:(val=6) 0
- w "Pointer argument test failed."
- q 1
- ;
-testArgs(arg) ;
- s arg=arg+1
- d testArgs2(.arg)
- q
-testArgs2(arg) ;
- s arg=arg+1
- d testArgs3(.arg)
- q
-testArgs3(param) ;
- s param=param*2
- q
  q
