@@ -28,26 +28,24 @@ _horolog_midnight = datetime.time()
 ###################
 # COMMAND FUNCTIONS
 # Command functions execute the actions given by a MUMPS keyword command
-# such as 'w' (write). Each matches the signature func(args, env). They
-# return one of the following values:
-# - None :: the command has finished and execution should continue
-# - True :: the command was conditional (IF, ELSE) and execution can continue
-# - False :: the command was conditional (IF, ELSE) and execution should stop
-# - MUMPSNone() :: a scope change command (i.e. QUIT) is returning nothing
-# - MUMPSExpression() :: a scope change command is returning a value
+# such as 'w' (write). Each matches the signature func(args, env). Functions
+# will either implicitly return None or raise one of the following exceptions
+# to indicate to the parser how to proceed next:
+# - MUMPSReturn() encapsulates a return value (or None) and indicates that
+#   the parser should exit the current scope (subroutine or function)
+# - MUMPSCommandEnd() indicates to the parser that it should continue
+#   to the next line of execution (i.e. a conditional command evaluated False)
 ###################
 def new_var(args, env):
     """New the variables given in the argument list."""
     for var in args:
         env.new(var)
-    return None
 
 
 def do_cmd(args, env):
     """Perform a subroutine call."""
     for sub in args:
         sub.execute()
-    return None
 
 
 def halt(args, env):
@@ -59,7 +57,6 @@ def hang(args, env):
     """Sleep the system for the given number of seconds."""
     for slp in args:
         time.sleep(slp)
-    return None
 
 
 def if_cmd(args, env):
@@ -67,43 +64,38 @@ def if_cmd(args, env):
     for expr in args:
         if not expr:
             env.set("$T", mumps_false())
-            return False
+            raise MUMPSCommandEnd()
     env.set("$T", mumps_true())
-    return True
 
 
 def if_no_args(args, env):
     """Process an argumentless IF MUMPS command."""
-    if env.get("$T").equals(mumps_true()):
-        return True
-    return False
+    if not env.get("$T").equals(mumps_true()):
+        raise MUMPSCommandEnd()
 
 
 def else_cmd(args, env):
     """Process a MUMPS ELSE command."""
-    if env.get("$T").equals(mumps_false()):
-        return True
-    return False
+    if not env.get("$T").equals(mumps_false()):
+        raise MUMPSCommandEnd()
 
 
 def kill(args, env):
     """Kill the variables given in the argument list."""
     for var in args:
         env.kill(var)
-    return None
 
 
 def kill_all(args, env):
     """Kill all the symbols in the environment."""
     env.kill_all()
-    return None
 
 
 def quit_cmd(args, env):
     """Quit from the current scope."""
     # Quits from a DO block should have no argument
     if args is None:
-        return MUMPSNone()
+        raise MUMPSReturn(None)
 
     # Check for multiple quit arguments
     if len(args) > 1:
@@ -111,7 +103,7 @@ def quit_cmd(args, env):
                                err_type="INVALID ARGUMENTS")
 
     # Return the evaluated expression otherwise
-    return str(args[0])
+    raise MUMPSReturn(str(args[0]))
 
 
 def open_dev(args, env):
@@ -123,7 +115,6 @@ def open_dev(args, env):
 
         # Open the device
         env.open(dev)
-    return None
 
 
 def close_dev(args, env):
@@ -135,7 +126,6 @@ def close_dev(args, env):
 
         # Open the device
         env.close(dev)
-    return None
 
 
 def use_dev(args, env):
@@ -149,7 +139,6 @@ def use_dev(args, env):
 
     # Set the device
     env.use(dev)
-    return None
 
 
 def read(args, env):
@@ -168,14 +157,11 @@ def read(args, env):
     if not read_last:
         env.write("\n")
 
-    return None
-
 
 def set_var(args, env):
     """Set the symbols in the argument list to the given expression."""
     for item in args:
         env.set(item[0], item[1])
-    return None
 
 
 def write(args, env):
@@ -183,13 +169,41 @@ def write(args, env):
     for item in args:
         env.write(item)
     env.write("\n")
-    return None
 
 
 def write_symbols(args, env):
     """Write out all of the symbols in the environment."""
     env.print()
-    return None
+
+
+###################
+# COMMAND RETURN EXCEPTION
+# Commands raise exceptions if something needs to happen after they run.
+# IF/ELSE commands will raise a MUMPSCommandEnd to indicate that the
+# parser should continue to the next line
+###################
+class MUMPSReturn(Exception):
+    """The expression return value from a function is encapsulated in this
+    exception. Quit commands will raise this exception to let the
+    interpreter know that it should return to the previous stack level."""
+    def __init__(self, val):
+        self._val = val
+
+    def __str__(self):
+        return str(self._val)
+
+    def __repr__(self):
+        return "MUMPSReturn({val})".format(val=self._val)
+
+    def value(self):
+        return self._val
+
+
+class MUMPSCommandEnd(Exception):
+    """An indicator to the parser that the current line should finish
+    execution. Conditional commands raise this exception."""
+    def __init__(self):
+        pass
 
 
 ###################
@@ -219,7 +233,7 @@ def instrinsic_char(args):
     given in the argument list."""
     chars = []
     for arg in args:
-        chars.append(chr(arg.as_number()))
+        chars.append(chr(int(arg.as_number())))
     return MUMPSExpression(''.join(chars))
 
 
@@ -229,9 +243,10 @@ def intrinsic_extract(expr, low=1, high=None):
     index. If both `low` and `high` are given, return the substring from
     `low` to `high` index."""
     try:
+        s = str(expr)
+        slen = len(s)
         if isinstance(low, int) and isinstance(high, int):
             # Get the indices (noting that the low index is inclusive)
-            slen = len(str(expr))
             low -= 1
 
             # The low index cannot be higher than the high index
@@ -243,18 +258,18 @@ def intrinsic_extract(expr, low=1, high=None):
             if high > slen:
                 high = slen
 
-            return MUMPSExpression(str(expr)[low:high])
+            return MUMPSExpression(s[low:high])
         elif isinstance(low, int):
             # Get the index
             idx = low-1
 
             # The low index cannot be below 0
-            if idx < 0:
+            if idx < 0 or idx > slen:
                 raise IndexError
 
-            return MUMPSExpression(str(expr)[idx])
+            return MUMPSExpression(s[idx])
         else:
-            return MUMPSExpression(str(expr)[0])
+            return MUMPSExpression(s[0])
     except IndexError:
         return mumps_null()
 
@@ -297,8 +312,8 @@ def intrinsic_length(expr, char=None):
 def intrinsic_piece(expr, char, num=1):
     """Give the `num`th piece of `expr` split about `char` (1 indexed)."""
     try:
-        piece = str(expr).split(sep=str(char))[num-1]
-    except IndexError:
+        piece = str(expr).split(sep=str(char), maxsplit=num)[num-1]
+    except (IndexError, ValueError):
         piece = mumpy.mumps_null()
 
     return MUMPSExpression(piece)
@@ -403,54 +418,6 @@ def current_job():
 # For this reason, some components provide '''SAFE''' functions which
 # do not modify the component in place.
 ###################
-class MUMPSLine:
-    """Represent a full line of MUMPS code."""
-    def __init__(self, cmd, other=None):
-        """Initialize the line"""
-        if isinstance(other, (MUMPSLine, MUMPSEmptyLine)):
-            self.list = other.list
-            self.list.append(cmd)
-        else:
-            self.list = [cmd]
-
-    def __repr__(self):
-        """Return a string representation of this command."""
-        return "MUMPSLine({cmds})".format(
-            cmds=self.list,
-        )
-
-    def execute(self):
-        """Execute the entire line of commands."""
-        last = True
-        for cmd in self.list:
-            # If the last command returned an expression, we're done
-            if isinstance(last, MUMPSExpression):
-                break
-
-            # If the last command returned False, quit
-            if last is not None and not last:
-                last = None
-                break
-
-            # Execute the next command and get it's return value
-            last = cmd.execute()
-
-        return last
-
-
-class MUMPSEmptyLine:
-    """Represents a no-op line in MUMPS."""
-    def __init__(self, data, **kwargs):
-        self.data = data
-
-    def __repr__(self):
-        return "MUMPSEmptyLine({data})".format(data=self.data)
-
-    def execute(self):
-        """Do absolutely nothing."""
-        pass
-
-
 class MUMPSCommand:
     """Represents a MUMPS command execution."""
     def __init__(self, cmd, args, env, post=None):
@@ -557,10 +524,10 @@ class MUMPSFuncSubCall:
         self.env.pop_func_from_stack()
 
         # Check for syntax errors
-        if self.is_func and isinstance(p, (type(None), MUMPSNone)):
+        if self.is_func and isinstance(p, type(None)):
             raise MUMPSSyntaxError("Function call did not return value.",
                                    err_type="FUNCTION NO RETURN")
-        if not self.is_func and not isinstance(p, MUMPSNone):
+        if not self.is_func and not isinstance(p, type(None)):
             raise MUMPSSyntaxError("Subroutine call returned a value.",
                                    err_type="SUBROUTINE RETURN")
 
@@ -851,17 +818,6 @@ class MUMPSPointerIdentifier(MUMPSIdentifier):
     when passed into a function or subroutine."""
     def __init__(self, ident, env):
         super().__init__(ident, env)
-
-
-class MUMPSNone:
-    """Represents the empty return from a subroutine. The purpose of this
-    class is merely to act as a sentinel value, indicating that execution
-    has finished and that the parser should return."""
-    def __init__(self):
-        pass
-
-    def __repr__(self):
-        return "MUMPSNone()"
 
 
 class MUMPSArgumentList:

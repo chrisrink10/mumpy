@@ -47,14 +47,14 @@ class MUMPSParser:
             debuglog=self.debug_log,
             tabmodule='routab')
 
-        # If we're entering from a REPL, we need a separate Lexer and Parser
-        if interpreter:
-            self.repl = dict()
-            self.repl['lex'] = mumpy.MUMPSLexer(is_rou=False, debug=debug)
-            self.repl['parser'] = yacc.yacc(module=self,
-                                            debug=debug,
-                                            start='valid_input',
-                                            tabmodule='repltab')
+        # The REPL and XECUTE commands require slightly different
+        # lexing and parsing rules, so we maintain two lexer and parsers
+        self.repl = dict()
+        self.repl['lex'] = mumpy.MUMPSLexer(is_rou=False, debug=debug)
+        self.repl['parser'] = yacc.yacc(module=self,
+                                        debug=debug,
+                                        start='valid_input',
+                                        tabmodule='repltab')
 
     def parse_repl(self, data):
         """Parse an arbitrary line of MUMPS code and return the output to
@@ -72,11 +72,12 @@ class MUMPSParser:
 
             # Reset the Lexer and parse the data
             self.repl['lex'].reset()
-            p = self.repl['parser'].parse(data, lexer=self.repl['lex'].lexer)
 
             # Execute the parsed command(s)
             try:
-                return p.execute()
+                self.repl['parser'].parse(data, lexer=self.repl['lex'].lexer)
+            except (mumpy.MUMPSReturn, mumpy.MUMPSCommandEnd):
+                pass
             except Exception as e:
                 raise mumpy.MUMPSSyntaxError(e)
         except KeyError:
@@ -91,13 +92,18 @@ class MUMPSParser:
 
         # Reset the Lexer and parse the data
         self.rou['lex'].reset()
-        p = self.rou['parser'].parse(data, lexer=self.rou['lex'].lexer)
 
         # Execute the parsed command(s)
         try:
-            return p.execute()
+            self.rou['parser'].parse(data, lexer=self.rou['lex'].lexer)
+        except mumpy.MUMPSReturn as ret:
+            return ret
+        except mumpy.MUMPSCommandEnd:
+            pass
         except Exception as e:
             raise mumpy.MUMPSSyntaxError(e)
+
+        return None
 
     def parse_file(self, f, tag=None):
         """Parse a MUMPSFile from the first tag or at a specified tag."""
@@ -110,22 +116,23 @@ class MUMPSParser:
 
         # If no tag is specified, start at the beginning
         lines = f.tag_body(tag if tag is not None else f.rou)
-        ret = None
         for line in lines:
             if self.debug:
                 self.rou['lex'].test(line)
 
             self.rou['lex'].reset()
-            p = self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
-            ret = p.execute()
-            if ret is not None:
-                break
+            try:
+                self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
+            except mumpy.MUMPSReturn as ret:
+                return ret.value()
+            except mumpy.MUMPSCommandEnd:
+                continue
 
         # Reset the Lexer and Parser to the correct state
         self.rou['lex'].reset()
 
         # Return any resulting expression to the caller
-        return ret
+        return None
 
     def parse_tag(self, f, tag):
         """Parse a MUMPSFile starting at the specified tag. This function is
@@ -137,30 +144,36 @@ class MUMPSParser:
 
         # Get the tag body
         lines = f.tag_body(tag)
-        ret = None
         for line in lines:
             if self.debug:
                 self.rou['lex'].test(line)
 
             self.rou['lex'].reset()
-            p = self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
-            ret = p.execute()
-            if ret is not None:
-                break
+
+            try:
+                self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
+            except mumpy.MUMPSReturn as ret:
+                return ret.value()
+            except mumpy.MUMPSCommandEnd:
+                continue
 
         # Reset the Lexer and Parser to the correct state
         self.rou['lex'].reset()
 
         # Return any resulting expression to the caller
-        return ret
+        return None
 
     def parse_xecute(self, args, env):
         """Parse an expression for an XECUTE command."""
         for expr in args:
             self.repl['lex'].reset()
-            p = self.repl['parser'].parse(str(expr), lexer=self.repl['lex'].lexer)
             try:
-                return p.execute()
+                self.repl['parser'].parse(str(expr),
+                                          lexer=self.repl['lex'].lexer)
+            except mumpy.MUMPSReturn as ret:
+                return ret.value()
+            except mumpy.MUMPSCommandEnd:
+                continue
             except Exception as e:
                 raise mumpy.MUMPSSyntaxError(e)
 
@@ -176,23 +189,23 @@ class MUMPSParser:
         """start : tag_line
                  | command_line
                  | comment_line"""
-        p[0] = p[1]
+        pass
 
     def p_tag_line(self, p):
         """tag_line : tag SPACE valid_input
                     | tag SPACE comment"""
-        p[0] = p[3]
+        pass
 
     def p_command_line(self, p):
         """command_line : SPACE valid_input SPACE COMMENT
                         | SPACE valid_input multiple_spaces COMMENT
                         | SPACE valid_input multiple_spaces
                         | SPACE valid_input"""
-        p[0] = p[2]
+        pass
 
     def p_comment_line(self, p):
         """comment_line : SPACE comment"""
-        p[0] = p[2]
+        pass
 
     def p_multiple_spaces(self, p):
         """multiple_spaces : multiple_spaces SPACE
@@ -201,24 +214,18 @@ class MUMPSParser:
 
     def p_comment(self, p):
         """comment : COMMENT"""
-        p[0] = mumpy.MUMPSEmptyLine(p[1])
+        pass
 
     def p_input(self, p):
         """valid_input : valid_input SPACE command
                        | valid_input any_command
                        | any_command"""
-        l = len(p)
-        if l == 4:
-            p[0] = mumpy.MUMPSLine(p[3], p[1])
-        elif l == 3:
-            p[0] = mumpy.MUMPSLine(p[2], p[1])
-        else:
-            p[0] = mumpy.MUMPSLine(p[1])
+        pass
 
     def p_any_command(self, p):
         """any_command : command
                        | command_no_arg"""
-        p[0] = p[1]
+        p[1].execute()
 
     def p_command_argument(self, p):
         """command : write_command
@@ -722,10 +729,7 @@ class MUMPSParser:
         """tag : identifier LPAREN func_sub_argument_list RPAREN
                | identifier LPAREN RPAREN
                | identifier"""
-        p[0] = mumpy.MUMPSEmptyLine("{ident}".format(
-            ident=p[1],
-            #args=p[3] if len(p) == 5 else ""
-        ))
+        pass
 
     def p_variable(self, p):
         """variable : local_var
@@ -798,21 +802,21 @@ class MUMPSParser:
                         | EXTRACT LPAREN expression COMMA expression RPAREN
                         | EXTRACT LPAREN expression RPAREN"""
         l = len(p)
-        low = p[5] if l == 7 else 1
-        high = p[7] if l == 9 else None
+        low = int(p[5].as_number()) if l >= 7 else 1
+        high = int(p[7].as_number()) if l == 9 else None
         p[0] = lang.intrinsic_extract(p[3], low=low, high=high)
 
-    def p_find(self,p):
+    def p_find(self, p):
         """find_func : FIND LPAREN expression COMMA expression COMMA expression RPAREN
                      | FIND LPAREN expression COMMA expression RPAREN"""
-        start = p[7].as_number() if len(p) == 9 else None
+        start = int(p[7].as_number()) if len(p) == 9 else None
         p[0] = lang.intrinsic_find(p[3], p[5], start=start)
 
     def p_justify(self, p):
         """justify_func : justify_token LPAREN expression COMMA expression COMMA expression RPAREN
                         | justify_token LPAREN expression COMMA expression RPAREN"""
-        ndec = p[7].as_number() if len(p) == 9 else None
-        p[0] = lang.intrinsic_justify(p[3], p[5].as_number(), ndec)
+        ndec = int(p[7].as_number()) if len(p) == 9 else None
+        p[0] = lang.intrinsic_justify(p[3], int(p[5].as_number()), ndec)
 
     def p_length(self, p):
         """length_func : LENGTH LPAREN expression COMMA expression RPAREN

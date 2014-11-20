@@ -1,6 +1,9 @@
  ;**************************
  ;* ANSI M Level Unit Test
  ;**************************
+ ;
+ ; Licensed under a BSD license. See LICENSE for more information.
+ ;
  ; Author: Chris Rink
  ;
 TESTROU ;
@@ -23,8 +26,8 @@ TESTROU ;
  ;
  ; Perform tests
  s fails=fails+$$TestArithmetic()
- s fails=fails+$$TestStringOp()
  s fails=fails+$$TestIfElse()
+ s fails=fails+$$TestStringOp()
  s fails=fails+$$TestIntrinsic()
  ;
  ; Report the results
@@ -66,28 +69,28 @@ TestEquals() ;
  ;**************************
 TestLogic() ;
  n val
+ w "Testing logic operators..."
  ;
- w "Testing logical NOT..."
+ ; Testing logical NOT...
  s val='1 q:(val=1) 1
- w "Testing logical NOT..."
  s val='0 q:(val=0) 1
  ;
- w "Testing logical AND..."
+ ; Testing logical AND...
  s val=(1&1) q:(val=0) 1
  s val=(1&0) q:(val=1) 1
  s val=(0&0) q:(val=1) 1
  ;
- w "Testing logical NOT AND..."
+ ; Testing logical NOT AND...
  s val=(1'&1) q:(val=1) 1
  s val=(1'&0) q:(val=0) 1
  s val=(0'&0) q:(val=0) 1
  ;
- w "Testing logical OR..."
+ ; Testing logical OR...
  s val=(1!1) q:(val=0) 1
  s val=(1!0) q:(val=0) 1
  s val=(0!0) q:(val=1) 1
  ;
- w "Testing logical NOT OR..."
+ ; Testing logical NOT OR...
  s val=(1'!1) q:(val=1) 1
  s val=(1'!0) q:(val=1) 1
  s val=(0'!0) q:(val=0) 1
@@ -243,13 +246,102 @@ TestArithmetic() ;
  ;* String Operator Tests
  ;**************************
 TestStringOp() ;
- q 0
+ n str,val,fail
+ w "Testing string operations..."
+ ;
+ ; Test contains operator
+ s msg=" - String contains failed."
+ s str="flu-patient"
+ d EvalTest(str["pat",1,.fail,msg)
+ d EvalTest(str["lu",1,.fail,msg)
+ d EvalTest(str["flute",0,.fail,msg)
+ d EvalTest(str["pantie",0,.fail,msg)
+ ;
+ ; Test follows operator
+ s msg=" - String follows failed."
+ d EvalTest("ABD"]"ABC",1,.fail,msg)
+ d EvalTest("ABCD"]"ABC",1,.fail,msg)
+ d EvalTest(10]1,1,.fail,msg)
+ d EvalTest(2]1,1,.fail,msg)
+ d EvalTest(10]2,0,.fail,msg)
+ ;
+ ; Test sorts-after operator
+ s msg=" - String sorts-after failed."
+ d EvalTest("ABD"]]"ABC",1,.fail,msg)
+ d EvalTest("ABCD"]]"ABC",1,.fail,msg)
+ d EvalTest("ABCD"]]1,1,.fail,msg)
+ d EvalTest("ABC"]]2,1,.fail,msg)
+ d EvalTest(10]]1,1,.fail,msg)
+ d EvalTest(2]]1,1,.fail,msg)
+ d EvalTest(10]]2,1,.fail,msg)
+ ;
+ q +fail
  ;
  ;**************************
  ;* Intrinsic Tests
  ;**************************
 TestIntrinsic() ;
- q 0
+ n val,msg,fail
+ w "Testing intrinsic functions..."
+ ;
+ ; Test $ASCII function
+ s msg=" - $ASCII intrinsic failed."
+ d EvalTest($A(""),-1,.fail,msg)
+ d EvalTest($A("+"),43,.fail,msg)
+ d EvalTest($A("R"),82,.fail,msg)
+ d EvalTest($A("„"),8222,.fail,msg)
+ ;
+ ; Test $CHAR function
+ s msg=" - $CHAR intrinsic failed."
+ d EvalTest($C(67),"C",.fail,msg)
+ d EvalTest($C(104),"h",.fail,msg)
+ d EvalTest($C(7912),"Ứ",.fail,msg)
+ d EvalTest($C(67,104,114,105,115),"Chris",.fail,msg)
+ ;
+ ; Test $EXTRACT function
+ s msg=" - $EXTRACT intrinsic failed."
+ d EvalTest($E(""),"",.fail,msg)
+ d EvalTest($E("Chris"),"C",.fail,msg)
+ d EvalTest($E("Chris",-1),"",.fail,msg)
+ d EvalTest($E("Chris",43),"",.fail,msg)
+ d EvalTest($E("Chris",1),"C",.fail,msg)
+ d EvalTest($E("Chris",3),"r",.fail,msg)
+ d EvalTest($E("Chris",5,3),"",.fail,msg)
+ d EvalTest($E("Chris",3,3),"r",.fail,msg)
+ d EvalTest($E("Chris",2,4),"hri",.fail,msg)
+ d EvalTest($E("Chris",2,10),"hris",.fail,msg)
+ ;
+ ; Test $FIND function
+ s msg=" - $FIND intrinsic failed."
+ d EvalTest($F("MUMPy is fun",""),1,.fail,msg)
+ d EvalTest($F("MUMPy is fun","is"),9,.fail,msg)
+ d EvalTest($F("MUMPy is so fun. It is very powerful.","is",9),23,.fail,msg)
+ d EvalTest($F("MUMPy is so fun. It is very powerful.","is",24),0,.fail,msg)
+ ;
+ ; Test $JUSTIFY function
+ s msg=" - $JUSTIFY intrinsic failed."
+ d EvalTest($J("MUMPy",3),"MUMPy",.fail,msg)
+ d EvalTest($J("MUMPy",8),"   MUMPy",.fail,msg)
+ d EvalTest($J(1/128,0,10),"0.0078125000",.fail,msg)          ; #TODO: Remove the leading 0 from the return
+ d EvalTest($J(1/128,15,10),"   0.0078125000",.fail,msg)
+ ;
+ ; Test $LENGTH function
+ s MSG=" - $LENGTH intrinsic failed."
+ d EvalTest($L(""),0,.fail,msg)
+ d EvalTest($L("I like MUMPy and Python."),24,.fail,msg)
+ d EvalTest($L("",","),0,.fail,msg)
+ d EvalTest($L("String 1, String 2, and String 3",","),2,.fail,msg)
+ d EvalTest($L("Test string",";"),0,.fail,msg)
+ ;
+ ; #TODO: Test $NAME function
+ ;
+ ; Test $PIECE function                                      ; #TODO: Add fourth possible $PIECE param
+ d EvalTest($P("",","),"",.fail,msg)
+ d EvalTest($P("Arya",""),"",.fail,msg)
+ d EvalTest($P("Arya",","),"Arya",.fail,msg)
+ ; #TODO: Finish the $PIECE function tests
+ ;
+ q +fail
  ;
  ;**************************
  ;* IF/ELSE Tests

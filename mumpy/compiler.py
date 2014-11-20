@@ -71,7 +71,7 @@ class MUMPSFile:
         tags = {}
 
         # Read in the routine file
-        with open(self.rou_path, mode='r', encoding='US-ASCII') as f:
+        with open(self.rou_path, mode='r', encoding='UTF-8') as f:
             for i, line in enumerate(f):
                 # Lex the line
                 try:

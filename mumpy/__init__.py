@@ -11,17 +11,16 @@ from mumpy.interpreter import (start_repl,
                                compile_routine)
 from mumpy.lang import (MUMPSArgumentList,
                         MUMPSCommand,
-                        MUMPSEmptyLine,
+                        MUMPSCommandEnd,
                         MUMPSExpression,
-                        mumps_false,
                         MUMPSFuncSubCall,
                         MUMPSIdentifier,
-                        MUMPSNone,
                         MUMPSLocal,
-                        mumps_null,
-                        MUMPSLine,
                         MUMPSPointerIdentifier,
+                        MUMPSReturn,
                         MUMPSSyntaxError,
+                        mumps_false,
+                        mumps_null,
                         mumps_true)
 from mumpy.parser import MUMPSParser
 from mumpy.tokenizer import MUMPSLexer

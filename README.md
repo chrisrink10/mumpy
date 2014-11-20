@@ -6,7 +6,7 @@ directly from the command shell.
 
 Features:
 
-* Allows calling
+ * Allows calling Python functions from M code
 
 ## Installation
 MUMPy can be installed using `pip`:
@@ -188,12 +188,18 @@ strict left-to-right order.
 ## Resources
 The following resources have been invaluable to me as I have been writing
 MUMPy:
+
 * [Annotated MUMPS Standards](http://71.174.62.16/Demo/AnnoStd) - the closest
   thing to the ANSI/ISO M standards that is available online.
 * [GT.M Programmers Guide](http://tinco.pair.com/bhaskar/gtm/doc/books/pg/UNIX_manual/index.html) -
   GT.M is a (mostly) ANSI M compliant, open source MUMPS distribution. Its 
   documentation is superior to the Annotated Standard, but it does differ
   from the Standard in a few ways.
+* [PLY](http://www.dabeaz.com/ply/ply.html) - Python Lex-Yacc is the
+  Python library which provides Lexing and Parsing capabilities to MUMPy.
+* [blist Documentation](http://stutzbachenterprises.com/blist/) - _blist_ 
+  is the Python library MUMPy use for local variables (specifically nested 
+  `sorteddict` instances).
 
 ## License
 MUMPy is licensed under the 3-clause BSD license. See the LICENSE file 
