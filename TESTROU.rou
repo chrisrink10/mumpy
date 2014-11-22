@@ -25,6 +25,7 @@ TESTROU ;
  q:($$TestPointerArgs())
  ;
  ; Perform tests
+ s fails=fails+$$TestExpressionReduction()
  s fails=fails+$$TestArithmetic()
  s fails=fails+$$TestIfElse()
  s fails=fails+$$TestStringOp()
@@ -275,6 +276,13 @@ TestStringOp() ;
  d EvalTest(2]]1,1,.fail,msg)
  d EvalTest(10]]2,1,.fail,msg)
  ;
+ ; Test concatenation operator
+ s msg=" - Concatenation failed."
+ d EvalTest(9_3,"93",.fail,msg)
+ d EvalTest("First"_"Second","FirstSecond",.fail,msg)
+ d EvalTest("First"_" Second","First Second",.fail,msg)
+ d EvalTest("First"_" "_"Second","First Second",.fail,msg)
+ ;
  q +fail
  ;
  ;**************************
@@ -339,6 +347,9 @@ TestIntrinsic() ;
  d EvalTest($P("",","),"",.fail,msg)
  d EvalTest($P("Arya",""),"",.fail,msg)
  d EvalTest($P("Arya",","),"Arya",.fail,msg)
+ d EvalTest($P("Arya,Jon,Sansa",","),"Arya",.fail,msg)
+ d EvalTest($P("Arya,Jon,Sansa",",",2),"Jon",.fail,msg)
+ d EvalTest($P("Arya,Jon,Sansa",",",4),"",.fail,msg)
  ; #TODO: Finish the $PIECE function tests
  ;
  q +fail
@@ -367,4 +378,40 @@ TestIfElse() ;
  ;
  q +fail
  ;
+ ;**************************
+ ;* Expression Reduction Tests
+ ;**************************
+ ; In M, programmers can write multiple command arguments on one line.
+ ; MUMPy reads in the entire set of arguments before executing any single
+ ; set of commands. As a result, we had an issue where the value of
+ ; expressions containing variables was evaluated prior to that variable
+ ; being set in an earlier `SET` argument, thus resulting in the wrong
+ ; value for the subsequent evaluation. We began using deferred/lazy
+ ; evaluation to remedy that problem, but now we're going to test for it :)
+ ;
+ ; Ex. `set x=1,x=x+1` should result with `x` equalling `2`, but before
+ ;     we moved to deferred evaluation, a `write x` would show `1`.
+TestExpressionReduction() ;
+ n val,fail
+ w "Testing deferred expression evaluation..."
+ ;
+ ; Test with basic addition
+ s val=1,val=val+1,val=val+1,val=val+1
+ s:(val'=4) fail=fail+1
+ ;
+ ; Test with some string operations
+ s val="Chris",val=val_" Rink",val=val_" Jr."
+ s:(val'="Chris Rink Jr.") fail=fail+1
+ ;
+ ; Test with intrinsic function
+ s val=$P("str1,str2",","),val=val_","_$P("str1,str2",",",2),val=val_",str3"
+ s:(val'="str1,str2,str3") fail=fail+1
+ ;
+ ; Test with an extrinsic
+ s val=10,val=val-$$testExpr(3),val=val*$$testExpr(3)
+ s:(val'=21) fail=fail+1
+ ;
+ q +fail
+testExpr(arg) ;
+ q arg
  q

@@ -7,7 +7,6 @@ devices.
 Licensed under a BSD license. See LICENSE for more information.
 
 Author: Christopher Rink"""
-__author__ = 'christopher'
 import sys
 import traceback
 import mumpy

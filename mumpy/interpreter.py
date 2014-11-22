@@ -14,7 +14,7 @@ import mumpy
 def start_repl(debug=False):
     """Start the interpreter loop."""
     env = mumpy.MUMPSEnvironment()
-    p = mumpy.MUMPSParser(env, interpreter=True, debug=debug)
+    p = mumpy.MUMPSParser(env, debug=debug)
 
     # Catch the Keyboard Interrupt to let us exit gracefully
     try:
@@ -61,7 +61,7 @@ def interpret(file, recompile=False, debug=False):
 
     # Prepare the environment and parser
     env = mumpy.MUMPSEnvironment()
-    p = mumpy.MUMPSParser(env, interpreter=False, debug=debug)
+    p = mumpy.MUMPSParser(env, debug=debug)
 
     # Parse the file
     p.parse_file(f)

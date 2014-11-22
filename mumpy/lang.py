@@ -9,7 +9,6 @@ to achieve the actions dictated by the M standard.
 Licensed under a BSD license. See LICENSE for more information.
 
 Author: Christopher Rink"""
-__author__ = 'christopher'
 import datetime
 import random
 import string
@@ -161,7 +160,7 @@ def read(args, env):
 def set_var(args, env):
     """Set the symbols in the argument list to the given expression."""
     for item in args:
-        env.set(item[0], item[1])
+        env.set(item[0], item[1].reduce())
 
 
 def write(args, env):
@@ -410,13 +409,6 @@ def current_job():
 #
 # Most of the components are designed in such a way that they can be
 # assembled or compounded from repeated calls to the __init__ function.
-#
-# For example, MUMPSExpressions compound (and, in effect, reduce) as you
-# perform operations on them. Clients should be mindful of this behavior
-# as it can produce unexpected results. This has the effect of, like
-# quantum physics, changing the state of the element as you examine it.
-# For this reason, some components provide '''SAFE''' functions which
-# do not modify the component in place.
 ###################
 class MUMPSCommand:
     """Represents a MUMPS command execution."""
@@ -536,41 +528,42 @@ class MUMPSFuncSubCall:
 
 
 class MUMPSExpression:
-    """Performs arbitrarily complex expression computation."""
+    """Performs arbitrarily complex expression computation using a deferred
+    evaluation thunk with Python lambdas. Each operation returns a new
+    unevaluated expression which can be str()'ed to calculate the value
+    one time (but not save that value) or reduce()'ed to permanently
+    reduce the expression value."""
     def __init__(self, expr):
+        # Retain a reference to the identifier, if this expression is one
+        self._ident = None
+
         # Handle cases where we may be assigned an
         # Identifier or another Expression
         if isinstance(expr, MUMPSExpression):
-            self.expr = expr.expr
+            self._val = expr._val
         elif isinstance(expr, MUMPSIdentifier):
-            self.expr = expr
+            self._val = lambda: expr.value()
+            self._ident = expr
         elif isinstance(expr, MUMPSFuncSubCall):
-            self.expr = expr.execute()
+            self._val = lambda: expr.execute()
+        elif callable(expr):
+            self._val = expr
         elif expr is None:
-            self.expr = ""
+            self._val = lambda: ""
         else:
-            self.expr = expr
+            self._val = lambda: expr
 
-    ###################
-    # SAFE FUNCTIONS
-    # These functions have no side-effects. They do not modify the
-    # existing expression. The operator overloaded functions will
-    # modify the existing expression and return it with the compound
-    # result of the operation.
-    ###################
     def as_number(self):
         """Return the canonical MUMPS numeric form of this expression."""
-        if isinstance(self.expr, MUMPSIdentifier):
-            return _mumps_number(str(self.expr.value()))
-        return _mumps_number(self.expr)
+        return _mumps_number(str(self))
 
     def is_ident(self):
         """Return True if this expression is also an Identifier."""
-        return True if isinstance(self.expr, MUMPSIdentifier) else False
+        return True if self._ident is not None else False
 
     def as_ident(self):
         """Return the Identifier represented by this expression."""
-        return self.expr if isinstance(self.expr, MUMPSIdentifier) else None
+        return self._ident
 
     def equals(self, other):
         """Returns True if this expression is equal to the other expression.
@@ -579,13 +572,18 @@ class MUMPSExpression:
         contents of the current expression."""
         return int(str(self) == str(MUMPSExpression(other)))
 
-    def __getitem__(self, item):
-        """Enable MUMPSExpressions to be subscriptable."""
-        return self.expr.__getitem__(item)
+    def reduce(self):
+        """Reduce the value of this expression into its internal value.
+
+        Ex. `set x=1,x=x+1` should yield a value of `2`; reduce() reduces the
+        value of `x+1` as it is saved into `x` again to avoid infinite
+        recursion when trying to return the value."""
+        self._val = lambda v=self._val(): v
+        return self
 
     def __len__(self):
         """Return the expression length."""
-        return len(self.expr)
+        return len(str(self))
 
     def __bool__(self):
         """Return True if this expression evaluates to true."""
@@ -597,65 +595,79 @@ class MUMPSExpression:
 
     def __str__(self):
         """Return the string value of the expression."""
-        if isinstance(self.expr, MUMPSIdentifier):
-            v = str(self.expr.value())
-        else:
-            v = str(self.expr)
-        return v
+        return str(self._val())
 
     def __repr__(self):
         """Return a string representation of this object."""
-        return "MUMPSExpression('{expr}',{str},{num},{bool})".format(
-            expr=repr(self.expr),
-            str=str(self),
+        return "MUMPSExpression('{expr}',{num},{bool})".format(
+            expr=str(self),
             num=self.as_number(),
             bool=bool(self)
         )
 
-    ###################
-    # UNSAFE FUNCTIONS
-    # These functions WILL MODIFY THE EXISTING EXPRESSION. They compute
-    # the reduced expression into the existing expression and return self.
-    ###################
     def __eq__(self, other):
         """Return 1 if both MUMPS expressions are equal."""
-        self.expr = int(str(self) == str(MUMPSExpression(other)))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                int(str(left) == str(MUMPSExpression(right)))
+            )
+        )
 
     def __ne__(self, other):
         """Return 1 if this MUMPS expression is not equal to other."""
-        self.expr = int(str(self) != str(MUMPSExpression(other)))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                int(str(left) != str(MUMPSExpression(right)))
+            )
+        )
 
     def __gt__(self, other):
         """Return 1 if this MUMPS expression is greater than other."""
-        self.expr = int(self.as_number() > _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                int(left.as_number() > _other_as_number(right))
+            )
+        )
 
     def __lt__(self, other):
         """Return 1 if this MUMPS expression is less than other."""
-        self.expr = int(self.as_number() < _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                int(left.as_number() < _other_as_number(right))
+            )
+        )
 
     def __add__(self, other):
         """Add two MUMPS expressions together."""
-        self.expr = _mumps_number(self.as_number() + _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                _mumps_number(left.as_number() + _other_as_number(right))
+            )
+        )
 
     def __sub__(self, other):
         """Subtract two MUMPS expressions."""
-        self.expr = _mumps_number(self.as_number() - _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                _mumps_number(left.as_number() - _other_as_number(right))
+            )
+        )
 
     def __mul__(self, other):
         """Multiple two MUMPS expressions."""
-        self.expr = _mumps_number(self.as_number() * _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                _mumps_number(left.as_number() * _other_as_number(right))
+            )
+        )
 
     def __truediv__(self, other):
         """Divide two MUMPS expressions."""
-        self.expr = _mumps_number(self.as_number() / _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                _mumps_number(left.as_number() / _other_as_number(right))
+            )
+        )
 
     def __floordiv__(self, other):
         """Integer divide two MUMPS expressions.
@@ -665,48 +677,67 @@ class MUMPSExpression:
         n = self.as_number()
         d = _other_as_number(other)
         v = n // d if n * d > 0 else (n + (-n % d)) // d
-        self.expr = _mumps_number(v)
-        return self
+        return MUMPSExpression(
+            lambda num=v: _mumps_number(num)
+        )
 
     def __mod__(self, other):
         """Return the modulus of two MUMPS expressions."""
-        self.expr = _mumps_number(self.as_number() % _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                _mumps_number(left.as_number() % _other_as_number(right))
+            )
+        )
 
     def __pow__(self, power, modulo=None):
         """Return the power of two MUMPS expressions."""
-        self.expr = _mumps_number(self.as_number() ** _other_as_number(power))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=power: (
+                _mumps_number(left.as_number() ** _other_as_number(right))
+            )
+        )
 
     def __neg__(self):
         """Return the unary negative of this MUMPS expression."""
-        self.expr = -self.as_number()
-        return self
+        return MUMPSExpression(
+            lambda right=self: -right.as_number()
+        )
 
     def __pos__(self):
         """Return the unary positive of this MUMPS expression."""
-        self.expr = self.as_number()
-        return self
+        return MUMPSExpression(
+            lambda right=self: right.as_number()
+        )
 
     def __and__(self, other):
         """Return the AND result of two MUMPS expressions."""
-        self.expr = int(self.as_number() and _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                int(left.as_number() and _other_as_number(right))
+            )
+        )
 
     def __or__(self, other):
         """Return the OR result of two MUMPS expressions."""
-        self.expr = int(self.as_number() or _other_as_number(other))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                int(left.as_number() or _other_as_number(right))
+            )
+        )
 
     def __invert__(self):
         """Return the NOT result of this MUMPS expression."""
-        self.expr = int(not self.as_number())
-        return self
+        return MUMPSExpression(
+            lambda right=self: int(not right.as_number())
+        )
 
     def concat(self, other):
         """Concatenates two MUMPS values together and returns itself.."""
-        self.expr = "{}{}".format(str(self), str(MUMPSExpression(other)))
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                "{}{}".format(str(left), str(MUMPSExpression(right)))
+            )
+        )
 
     def sorts_after(self, other):
         """Return True if this MUMPS expression sorts after other in
@@ -714,8 +745,9 @@ class MUMPSExpression:
         o = MUMPSExpression(other)
         s = str(self)
         l = sorted([s, str(o)])
-        self.expr = 1 if (s == l[1]) else 0
-        return self
+        return MUMPSExpression(
+            lambda me=s: 1 if (me == l[1]) else 0
+        )
 
     def follows(self, other):
         """Return True if this MUMPS expression follows other in
@@ -723,14 +755,16 @@ class MUMPSExpression:
         o = MUMPSExpression(other)
         b = bytes(str(self), encoding='utf8')
         l = sorted([b, bytes(str(o), encoding='utf8')])
-        self.expr = 1 if (b == l[1]) else 0
-        return self
+        return MUMPSExpression(
+            lambda me=b: 1 if (b == l[1]) else 0
+        )
 
     def contains(self, other):
-        self.expr = 0 if (
-            str(self).find(str(MUMPSExpression(other))) == -1
-        ) else 1
-        return self
+        return MUMPSExpression(
+            lambda left=self, right=other: 0 if (
+                str(left).find(str(MUMPSExpression(right))) == -1
+            ) else 1
+        )
 
 
 def mumps_null():

@@ -13,7 +13,7 @@ import mumpy.lang as lang
 
 # noinspection PyMethodMayBeStatic
 class MUMPSParser:
-    def __init__(self, env, interpreter=False, debug=False):
+    def __init__(self, env, debug=False):
         # The environment is the execution stack
         self.env = env
         self.debug = debug
