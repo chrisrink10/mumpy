@@ -7,7 +7,12 @@ and compiling and executing a routine file).
 Licensed under a BSD license. See LICENSE for more information.
 
 Author: Christopher Rink"""
-import readline     # Used by Python's input() to provide readline functionality
+try:
+    # Used by Python's input() to provide readline functionality
+    # Does not work on Windows, so we'll just pass
+    import readline
+except ImportError:
+    pass
 import mumpy
 
 
@@ -27,8 +32,12 @@ def start_repl(debug=False):
                 p.parse_repl(current_line)
             except mumpy.MUMPSSyntaxError as e:
                 print(e)
+
+            # If output was emitted, we need to add an extra newline
+            if p.output:
+                print("")
     except KeyboardInterrupt:
-        env.write("\n")
+        print("")
         pass
 
 

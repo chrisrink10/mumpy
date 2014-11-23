@@ -7,8 +7,9 @@ devices.
 Licensed under a BSD license. See LICENSE for more information.
 
 Author: Christopher Rink"""
+import os
+import select
 import sys
-import traceback
 import mumpy
 
 
@@ -18,6 +19,8 @@ class MUMPSEnvironment:
                  err_dev=sys.stderr):
         # Default I/O device
         self._default_device = 'STANDARD'
+        self._def_x = 0
+        self._def_y = 0
 
         # Current stack level and variable stack
         self._cur = 0
@@ -346,6 +349,20 @@ class MUMPSEnvironment:
         """Return the default device for this session."""
         return mumpy.MUMPSExpression(self._default_device)
 
+    def device_x(self):
+        """Return the device $X value for the currently selected device."""
+        try:
+            return self._devices[self._cur_dev]['x']
+        except KeyError:
+            return self._def_x
+
+    def device_y(self):
+        """Return the device $Y value for the currently selected device."""
+        try:
+            return self._devices[self._cur_dev]['y']
+        except KeyError:
+            return self._def_y
+
     def open(self, dev, mode='r+'):
         """Open a file device and add it to the file device list."""
         # Store the device in string form only
@@ -363,7 +380,11 @@ class MUMPSEnvironment:
 
         # Try to open the device
         try:
-            self._devices[dev] = open(dev, mode=mode, encoding="utf8")
+            self._devices[dev] = {
+                'dev': open(dev, mode=mode, encoding="utf8"),
+                'x': 0,
+                'y': 0,
+            }
         except OSError as e:
             raise mumpy.MUMPSSyntaxError("Invalid IO operation; operating "
                                          "system returned '{}'.".format(str(e)))
@@ -383,7 +404,7 @@ class MUMPSEnvironment:
                                          err_type="INVALID DEVICE")
 
         # Close the device
-        self._devices[dev].close()
+        self._devices[dev]['dev'].close()
 
         # Check if the device we just closed was the current device;
         # If so, revert back to the $PRINCIPAL IO device
@@ -405,31 +426,61 @@ class MUMPSEnvironment:
         if is_principal:
             self._in_dev, self._out_dev = sys.stdin, sys.stdout
         else:
-            dev = self._devices[dev]
+            dev = self._devices[dev]['dev']
             self._in_dev, self._out_dev = dev, dev
 
-    def input(self, size=None, prompt=None):
+    def input(self, size=None, timeout=None, prompt=None):
         """Input from the current input device."""
         # Provide a prompt for the read
         if isinstance(prompt, str):
             self._out_dev.write(prompt)
 
+        # Implement read timeout for POSIX systems
+        # Per the Python documentation, select does not work for
+        # file objects in a Windows environment
+        if timeout is not None and os.name != 'nt':
+            r, _, _ = select.select((self._in_dev,), (), (), timeout)
+            if len(r) == 0:
+                return ""
+            dev = r[0]
+        else:
+            dev = self._in_dev
+
         # Allow reading input of a certain size
         if isinstance(size, int):
-            val = self._in_dev.read(size)
+            val = dev.read(size)
         else:
-            val = self._in_dev.readline()
+            val = dev.readline()
         return val[:-1] if val.endswith("\n") else val
 
     def write(self, data, flush=True):
         """Output to the current output device."""
-        self._out_dev.write(str(data))
+        s = str(data)
+        self._out_dev.write(s)
         if flush:
             self._out_dev.flush()
+        self._update_cursor(s)
 
     def writeln(self, data):
         """Write to the current output device; appends a newline to output."""
-        self._out_dev.write("{data}\n".format(data=str(data)))
+        s = str(data)
+        self._out_dev.write("{data}\n".format(data=s))
+        self._update_cursor(s, newline=True)
+
+    def _update_cursor(self, data, newline=False):
+        """Update the X and Y position for the current device."""
+        lines = data.split("\n")
+        num_lines = len(lines)
+        num_newlines = (num_lines - 1) + int(newline)
+        num_chars = len(lines[num_lines-1]) if not newline else 0
+        new_x = self.device_x() + num_chars if num_newlines == 0 else num_chars
+        new_y = self.device_y() + num_newlines
+        try:
+            self._devices[self._cur_dev]['x'] = new_x
+            self._devices[self._cur_dev]['y'] = new_y
+        except KeyError:
+            self._def_x = new_x
+            self._def_y = new_y
 
     def write_error(self, data):
         """Output to the current error device."""

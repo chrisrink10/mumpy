@@ -148,8 +148,9 @@ def read(args, env):
             env.write(item)
             read_last = False
         else:
-            temp = env.input()
-            env.set(item.as_ident(), MUMPSExpression(temp))
+            ident = item.as_ident()
+            temp = env.input(size=ident.get_max(), timeout=ident.get_timeout())
+            env.set(ident, MUMPSExpression(temp))
             read_last = True
 
     # If we did not read last, output an extra newline
@@ -167,7 +168,6 @@ def write(args, env):
     """Write out the given expressions."""
     for item in args:
         env.write(item)
-    env.write("\n")
 
 
 def write_symbols(args, env):
@@ -229,7 +229,7 @@ def intrinsic_ascii(expr, which=1):
     return char
 
 
-def instrinsic_char(args):
+def intrinsic_char(args):
     """Return the UTF-8 character value for the ordinal number or numbers
     given in the argument list."""
     chars = []
@@ -808,7 +808,7 @@ def mumps_false():
 
 class MUMPSIdentifier:
     """Represents a MUMPS identifier in code."""
-    def __init__(self, ident, env, subscripts=None):
+    def __init__(self, ident, env, subscripts=None, max=None, timeout=None):
         # Handle the case that we may be passed another instance of
         # a MUMPSIdentifier object
         if isinstance(ident, MUMPSIdentifier):
@@ -828,6 +828,12 @@ class MUMPSIdentifier:
 
         # Check that we are a valid identifier
         self.is_valid()
+
+        # Set the maximum number of bytes for this variable
+        self._max = max
+
+        # Set the read timeout for this variable
+        self._timeout = timeout
 
     def __eq__(self, other):
         """Return True if this Identifier is equal to other."""
@@ -849,6 +855,33 @@ class MUMPSIdentifier:
             ident=self._ident,
             val=self.value()
         )
+
+    def get_max(self):
+        """Return the number of bytes to read into this variable."""
+        return self._max
+
+    def set_max(self, m):
+        """Sets the maximum number of bytes that will be read into this
+        variable."""
+        if not isinstance(m, (type(None), int)):
+            raise MUMPSSyntaxError("Maximum read size for variable invalid.",
+                                   err_type="INVALID READ SIZE")
+
+        self._max = m
+        return self
+
+    def get_timeout(self):
+        """Gets the maximum number of seconds to wait for input."""
+        return self._timeout
+
+    def set_timeout(self, t):
+        """Sets the maximum number of seconds to wait for input."""
+        if not isinstance(t, (type(None), int)):
+            raise MUMPSSyntaxError("Maximum read size for variable invalid.",
+                                   err_type="INVALID READ SIZE")
+
+        self._timeout = t
+        return self
 
     def value(self):
         """Return the resolved value of this Identifier."""

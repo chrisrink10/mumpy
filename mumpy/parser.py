@@ -18,6 +18,9 @@ class MUMPSParser:
         self.env = env
         self.debug = debug
 
+        # Boolean flag if the last line caused output
+        self.output = False
+
         # Output log file that PLY uses to report Parse errors
         logging.basicConfig(
             level=logging.DEBUG if debug else logging.ERROR,
@@ -66,6 +69,8 @@ class MUMPSParser:
         resulting in an expression with a `w` like `w $$func^ROU()` to
         see the resultant expression."""
         try:
+            self.output = False
+
             # Output the Lexer tokens
             if self.debug:
                 self.repl['lex'].test(data)
@@ -86,6 +91,8 @@ class MUMPSParser:
     def parse(self, data):
         """Parse an arbitrary line of MUMPS code and return the output to
         the caller."""
+        self.output = False
+
         # Output the Lexer tokens
         if self.debug:
             self.rou['lex'].test(data)
@@ -117,6 +124,8 @@ class MUMPSParser:
         # If no tag is specified, start at the beginning
         lines = f.tag_body(tag if tag is not None else f.rou)
         for line in lines:
+            self.output = False
+
             if self.debug:
                 self.rou['lex'].test(line)
 
@@ -145,6 +154,8 @@ class MUMPSParser:
         # Get the tag body
         lines = f.tag_body(tag)
         for line in lines:
+            self.output = True
+
             if self.debug:
                 self.rou['lex'].test(line)
 
@@ -165,6 +176,7 @@ class MUMPSParser:
 
     def parse_xecute(self, args, env):
         """Parse an expression for an XECUTE command."""
+        self.output = False
         for expr in args:
             self.repl['lex'].reset()
             try:
@@ -283,6 +295,21 @@ class MUMPSParser:
         """else_command : ELSE no_argument"""
         p[0] = mumpy.MUMPSCommand(lang.else_cmd, None, self.env)
 
+    def p_for_limited(self, p):
+        """for_limited : FOR SPACE variable EQUALS expression COLON expression COLON expression
+                       | FOR SPACE variable EQUALS expression COLON expression
+                       | FOR SPACE variable EQUALS expression"""
+        pass
+
+    def p_for_unlimited(self, p):
+        """for_unlimited : FOR no_argument"""
+        pass
+
+    def p_goto_command(self, p):
+        """goto_command : GOTO SPACE
+                        | GOTO COLON expression SPACE """
+        pass
+
     def p_kill_command(self, p):
         """kill_command : KILL SPACE variable_list
                         | KILL COLON expression SPACE variable_list"""
@@ -357,8 +384,8 @@ class MUMPSParser:
         p[0] = mumpy.MUMPSCommand(lang.use_dev, args, self.env, post=post)
 
     def p_read_command(self, p):
-        """read_command : READ SPACE argument_list
-                        | READ COLON expression SPACE argument_list"""
+        """read_command : READ SPACE read_argument_list
+                        | READ COLON expression SPACE read_argument_list"""
         # Evaluate the post-conditional if it exists
         if len(p) > 4:
             post = p[3]
@@ -371,8 +398,10 @@ class MUMPSParser:
         p[0] = mumpy.MUMPSCommand(lang.read, args, self.env, post=post)
 
     def p_write_command(self, p):
-        """write_command : WRITE SPACE argument_list
-                         | WRITE COLON expression SPACE argument_list"""
+        """write_command : WRITE SPACE write_argument_list
+                         | WRITE COLON expression SPACE write_argument_list"""
+        self.output = True
+
         # Evaluate the post-conditional if it exists
         if len(p) > 4:
             post = p[3]
@@ -386,6 +415,7 @@ class MUMPSParser:
 
     def p_write_symbols(self, p):
         """write_symbols : WRITE no_argument"""
+        self.output = True
         p[0] = mumpy.MUMPSCommand(lang.write_symbols, None, self.env)
 
     def p_xecute_command(self, p):
@@ -440,7 +470,7 @@ class MUMPSParser:
         p[0] = mumpy.MUMPSCommand(lang.hang, num, self.env, post=post)
 
     ###################
-    # COMMAND MISC
+    # ENTRYREF COMMAND MISC
     ###################
     def p_routine_global(self, p):
         """routine_global : CARET identifier"""
@@ -570,6 +600,9 @@ class MUMPSParser:
         """pointer_argument : PERIOD identifier"""
         p[0] = mumpy.MUMPSPointerIdentifier(p[2], self.env)
 
+    ###################
+    # COMMAND MISC
+    ###################
     def p_symbol_list(self, p):
         """symbol_list : symbol_list COMMA identifier
                        | identifier"""
@@ -618,6 +651,13 @@ class MUMPSParser:
         else:
             p[0] = mumpy.MUMPSArgumentList(p[1])
 
+    def p_no_arguments(self, p):
+        """no_argument : SPACE SPACE"""
+        p[0] = p[1]
+
+    ###################
+    # I/O COMMAND MISC
+    ###################
     def p_device_list(self, p):
         """device_list : device_list COMMA device
                        | device"""
@@ -648,9 +688,98 @@ class MUMPSParser:
         """device_parameter : expression COLON expression"""
         p[0] = (p[1], p[3])
 
-    def p_no_arguments(self, p):
-        """no_argument : SPACE SPACE"""
+    def p_read_argument_list(self, p):
+        """read_argument_list : read_argument_list COMMA read_argument
+                              | read_argument"""
+        if len(p) == 4:
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_read_argument(self, p):
+        """read_argument : string_contents
+                         | io_format
+                         | read_variable
+                         | read_timeout"""
+        p[0] = mumpy.MUMPSExpression(p[1])
+
+    def p_read_timeout(self, p):
+        """read_timeout : read_variable COLON expression"""
+        p[0] = p[1].set_timeout(int(p[3].as_number()))
+
+    def p_read_variable(self, p):
+        """read_variable : read_one_char
+                         | read_n_chars
+                         | read_line"""
         p[0] = p[1]
+
+    def p_read_one_char(self, p):
+        """read_one_char : TIMES variable"""
+        p[0] = p[2].set_max(1)
+
+    def p_read_n_chars(self, p):
+        """read_n_chars : variable MODULUS expression"""
+        p[0] = p[1].set_max(int(p[3].as_number()))
+
+    def p_read_line(self, p):
+        """read_line : variable"""
+        p[0] = p[1]
+
+    def p_write_argument_list(self, p):
+        """write_argument_list : write_argument_list COMMA write_argument
+                               | write_argument"""
+        if len(p) == 4:
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_write_argument(self, p):
+        """write_argument : expression
+                          | io_format
+                          | write_char"""
+        p[0] = p[1]
+
+    def p_write_char(self, p):
+        """write_char : TIMES expression"""
+        p[0] = lang.intrinsic_char((p[2],))
+
+    def p_io_format(self, p):
+        """io_format : io_format format_newline
+                     | io_format format_clear_screen
+                     | io_format format_column
+                     | format_newline
+                     | format_clear_screen
+                     | format_column"""
+        p[0] = p[1]
+
+    def p_format_newline(self, p):
+        """format_newline : format_newline OR
+                          | OR"""
+        if len(p) == 3:
+            p[0] = "{}{}".format(p[1], "\n")
+        else:
+            p[0] = "\n"
+
+    def p_format_clear_screen(self, p):
+        """format_clear_screen : format_clear_screen MODULUS
+                               | MODULUS"""
+        # ANSI terminal escape sequence
+        clr = chr(27) + "[2J"
+
+        if len(p) == 3:
+            p[0] = "{}{}".format(p[1], clr)
+        else:
+            p[0] = clr
+
+    def p_format_column(self, p):
+        """format_column : format_column PATTERN expression
+                         | PATTERN expression"""
+        off = int(p[2].as_number()) if len(p) == 3 else int(p[3].as_number())
+        x_pos = lambda env=self.env: self.env.device_x()
+
+        p[0] = mumpy.MUMPSExpression(
+            lambda c=off, x=x_pos: " " * (c-x()) if c > x() else ""
+        )
 
     ###################
     # GENERIC DEFS
@@ -774,7 +903,7 @@ class MUMPSParser:
                           | intrinsic_not_exist"""
         p[0] = p[1]
 
-    def p_instrinsic_dne(self, p):
+    def p_intrinsic_dne(self, p):
         """intrinsic_not_exist : FN_DOES_NOT_EXIST error"""
         raise mumpy.MUMPSSyntaxError("Function does not exist.",
                                      err_type="FN DOES NOT EXIST")
@@ -797,7 +926,7 @@ class MUMPSParser:
 
     def p_char(self, p):
         """char_func : CHAR LPAREN argument_list RPAREN"""
-        p[0] = lang.instrinsic_char(p[3])
+        p[0] = lang.intrinsic_char(p[3])
 
     def p_data(self, p):
         """data_func : DATA LPAREN variable RPAREN"""
@@ -902,11 +1031,11 @@ class MUMPSParser:
 
     def p_x_var(self, p):
         """x_var : DOLLARX"""
-        p[0] = mumpy.MUMPSExpression(self.env.get("$X"))
+        p[0] = mumpy.MUMPSExpression(lambda env=self.env: env.device_x())
 
     def p_y_var(self, p):
         """y_var : DOLLARY"""
-        p[0] = mumpy.MUMPSExpression(self.env.get("$Y"))
+        p[0] = mumpy.MUMPSExpression(lambda env=self.env: env.device_y())
 
     ###################
     # LOGIC
