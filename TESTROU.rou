@@ -30,6 +30,7 @@ TESTROU ;
  s fails=fails+$$TestIfElse()
  s fails=fails+$$TestStringOp()
  s fails=fails+$$TestIntrinsic()
+ s fails=fails+$$TestAssumedVars()
  ;
  ; Report the results
  w "---------------------------------------------------------"
@@ -289,7 +290,7 @@ TestStringOp() ;
  ;* Intrinsic Tests
  ;**************************
 TestIntrinsic() ;
- n val,msg,fail
+ n val,msg,fail,var
  w "Testing intrinsic functions..."
  ;
  ; Test $ASCII function
@@ -305,6 +306,15 @@ TestIntrinsic() ;
  d EvalTest($C(104),"h",.fail,msg)
  d EvalTest($C(7912),"Ứ",.fail,msg)
  d EvalTest($C(67,104,114,105,115),"Chris",.fail,msg)
+ ;
+ ; Test $DATA function
+ s msg=" - $DATA intrinsic failed."
+ s var=1,var("name","first")="Tyrion",var("name","last")="Lannister"
+ d EvalTest($D(notdef),0,.fail,msg)
+ d EvalTest($D(var("notdef")),0,.fail,msg)
+ d EvalTest($D(var("name","first")),1,.fail,msg)
+ d EvalTest($D(var("name")),10,.fail,msg)
+ d EvalTest($D(var),11,.fail,msg)
  ;
  ; Test $EXTRACT function
  s msg=" - $EXTRACT intrinsic failed."
@@ -343,7 +353,21 @@ TestIntrinsic() ;
  ;
  ; #TODO: Test $NAME function
  ;
- ; Test $PIECE function                                      ; #TODO: Add fourth possible $PIECE param
+ ; Test $ORDER function
+ s msg=" - $ORDER intrinsic failed."
+ s var("age")=12
+ s var("height")=58
+ s var("name")="Chris"
+ d EvalTest($O(var("")),"age",.fail,msg)
+ d EvalTest($O(var("age")),"height",.fail,msg)
+ d EvalTest($O(var("height")),"name",.fail,msg)
+ d EvalTest($O(var("height"),-1),"age",.fail,msg)
+ d EvalTest($O(var(""),-1),"name",.fail,msg)
+ d EvalTest($O(var("age"),-1),"",.fail,msg)
+ k var
+ ;
+ ; Test $PIECE function
+ s msg=" - $PIECE instrinsic failed."
  d EvalTest($P("",","),"",.fail,msg)
  d EvalTest($P("Arya",""),"",.fail,msg)
  d EvalTest($P("Arya",","),"Arya",.fail,msg)
@@ -351,6 +375,27 @@ TestIntrinsic() ;
  d EvalTest($P("Arya,Jon,Sansa",",",2),"Jon",.fail,msg)
  d EvalTest($P("Arya,Jon,Sansa",",",4),"",.fail,msg)
  ; #TODO: Finish the $PIECE function tests
+ ;
+ ; Test $REVERSE function
+ s msg=" - $REVERSE instrinsic failed."
+ d EvalTest($RE(""),"",.fail,msg)
+ d EvalTest($RE("Chris"),"sirhC",.fail,msg)
+ ;
+ ; Test $SELECT function
+ s msg=" - $SELECT instrinsic failed."
+ d EvalTest($S(1:"first",1:"second"),"first",.fail,msg)
+ d EvalTest($S("":"first",1:"second"),"second",.fail,msg)
+ d EvalTest($S("":"first",0:"second",1:"third"),"third",.fail,msg)
+ d EvalTest($S("":"first",0:"second",3:"third",1:"fourth"),"third",.fail,msg)
+ ;
+ ; Test $TRANSLATE function
+ s msg=" - $TRANSLATE intrinsic failed."
+ d EvalTest($TR("",""),"",.fail,msg)
+ d EvalTest($TR("Chris",""),"Chris",.fail,msg)
+ d EvalTest($TR("Chris","ri"),"Chs",.fail,msg)
+ d EvalTest($TR("Chris","ri","el"),"Chels",.fail,msg)
+ d EvalTest($TR("Chris","ri","e"),"Ches",.fail,msg)
+ d EvalTest($TR("Chris","","el"),"Chris",.fail,msg)
  ;
  q +fail
  ;
@@ -414,4 +459,25 @@ TestExpressionReduction() ;
  q +fail
 testExpr(arg) ;
  q arg
+ ;
+ ;**************************
+ ;* Assumed Variable Test
+ ;**************************
+ ; M allows programmers to assume variables from lower stack levels and
+ ; make modifications to those values which persist once the higher stack
+ ; frame is popped.
+TestAssumedVars() ;
+ n val,fail,%
+ w "Testing assumed variables..."
+ s val=1
+ d testAssumedSub(),testAssumedSub()
+ s %=$$testAssumedFunc(),%=$$testAssumedFunc()
+ s:(val'=5) fail=fail+1
+ q +fail
+testAssumedSub() ;
+ s val=val+1
+ q
+testAssumedFunc()
+ s val=val+1
+ q 1
  q

@@ -179,7 +179,9 @@ def write_symbols(args, env):
 # COMMAND RETURN EXCEPTION
 # Commands raise exceptions if something needs to happen after they run.
 # IF/ELSE commands will raise a MUMPSCommandEnd to indicate that the
-# parser should continue to the next line
+# parser should continue to the next line. QUIT commands raise MUMPSReturn
+# exceptions with their return value to indicate to the parser to return
+# and return to the previous stack frame.
 ###################
 class MUMPSReturn(Exception):
     """The expression return value from a function is encapsulated in this
@@ -234,6 +236,21 @@ def instrinsic_char(args):
     for arg in args:
         chars.append(chr(int(arg.as_number())))
     return MUMPSExpression(''.join(chars))
+
+
+def intrinsic_data(var, env):
+    """Return a numeric value corresponding to the type of data in the
+    given variable. If the variable is not defined, return 0. If the variable
+    is defined and has no children nodes, return 1. If the variable base node
+    has no value, but the variable with that name has a value, return 10. If
+    the variable base node has a value and has children, return 11."""
+    # Check if the value is defined anywhere in the environment
+    if not var in env:
+        return MUMPSExpression(0)
+
+    # If so, get it and query it for it's data
+    v = env.get(var, get_var=True)
+    return v.data(var)
 
 
 def intrinsic_extract(expr, low=1, high=None):
@@ -306,6 +323,13 @@ def intrinsic_length(expr, char=None):
     if char is not None:
         return MUMPSExpression(str(expr).count(str(char)))
     return MUMPSExpression(len(str(expr)))
+
+
+def intrinsic_order(var, env, rev=0):
+    """Return the next subscript in the subscript level given by the input
+    variable. If no more subscripts are defined, return null."""
+    v = env.get(var, get_var=True)
+    return v.order(var, rev=rev)
 
 
 def intrinsic_piece(expr, char, num=1):
@@ -796,9 +820,6 @@ class MUMPSIdentifier:
         if not isinstance(subscripts, (type(None), MUMPSArgumentList)):
             raise MUMPSSyntaxError("Invalid subscript list given.",
                                    err_type="INVALID SUBSCRIPTS")
-        if subscripts is not None and mumps_null() in subscripts:
-            raise MUMPSSyntaxError("Null subscript given for identifier.",
-                                   err_type="NULL SUBSCRIPT")
 
         self._subscripts = subscripts
 
@@ -831,6 +852,7 @@ class MUMPSIdentifier:
 
     def value(self):
         """Return the resolved value of this Identifier."""
+        self.subscripts_valid()
         return self._env.get(self)
 
     def subscripts(self):
@@ -845,6 +867,12 @@ class MUMPSIdentifier:
         if not c in "{}{}".format(string.ascii_letters, "%"):
             raise MUMPSSyntaxError("Variable names must be valid "
                                    "ASCII letters or the '%' character.")
+
+    def subscripts_valid(self):
+        """Check for valid subscripts in this identifier."""
+        if self._subscripts is not None and mumps_null() in self._subscripts:
+            raise MUMPSSyntaxError("Null subscript given for identifier.",
+                                   err_type="NULL SUBSCRIPT")
 
 
 class MUMPSPointerIdentifier(MUMPSIdentifier):
@@ -889,9 +917,9 @@ class MUMPSArgumentList:
 
 
 class MUMPSLocal:
-    """Wrap a blist.sorteddict to provide MUMPS local variable functionality."""
+    """Wrap a SortedDict to provide MUMPS local variable functionality."""
     def __init__(self, value=None):
-        self._b = blist.sorteddict()
+        self._b = SortedDict()
         self._n = 0
         if value is not None:
             self._b[""] = value
@@ -904,7 +932,10 @@ class MUMPSLocal:
 
     def __str__(self):
         """Return the value of the root node."""
-        return str(self._b[""])
+        try:
+            return str(self._b[""])
+        except KeyError:
+            return ""
 
     def get(self, ident):
         """Return the value given by the input identifier. If the identifier
@@ -946,7 +977,7 @@ class MUMPSLocal:
                 try:
                     b = b[ss]
                 except KeyError:
-                    b[ss] = blist.sorteddict()
+                    b[ss] = SortedDict()
                     b = b[ss]
             b[""] = value
         except AttributeError:
@@ -992,9 +1023,38 @@ class MUMPSLocal:
         except KeyError:
             pass
 
-    def order(self, ident):
+    def data(self, ident):
+        """Return the `$DATA` value for this variable. Note that since you
+        have to query this object for that value, you automatically know that
+        it cannot be 0, as at least one node at some point is defined."""
+        try:
+            s = ident.subscripts() if not isinstance(ident, str) else None
+
+            # Set the root value
+            b = self._b
+
+            # If we were given subscripts, recurse down to that node level
+            if s is not None:
+                for sub in s:
+                    ss = str(sub)
+                    try:
+                        b = b[ss]
+                    except KeyError:
+                        return MUMPSExpression(0)
+
+            # Determine which data value we have
+            num = len(b)
+            root = int("" in b)
+            children = int((root and num > 1) or (not root and num > 0)) * 10
+            return MUMPSExpression(root + children)
+        except AttributeError:
+            raise MUMPSSyntaxError("Invalid identifier given for this var.",
+                                   "INVALID IDENTIFIER")
+
+    def order(self, ident, rev=0):
         """Return an iterator for the given identifier. If the identifier
-        has no subscripts, then raise a syntax error."""
+        has no subscripts, then raise a syntax error. If `rev` is -1, then
+        iterate on subscripts in reverse order."""
         try:
             s = ident.subscripts() if not isinstance(ident, str) else None
 
@@ -1005,24 +1065,130 @@ class MUMPSLocal:
 
             # Otherwise, set the value at the requested subscripts
             b = self._b
-            for sub in s:
-                ss = str(sub)
-                try:
-                    b = b[ss]
-                except KeyError:
-                    b[ss] = blist.sorteddict()
-                    b = b[ss]
-            return b
+            if rev >= 0:
+                ss = str(s[0])
+                for sub in s[:-1]:
+                    ss = str(sub)
+                    try:
+                        b = b[ss]
+                    except KeyError:
+                        pass
+
+                return b.next_key(ss)
+            else:
+                ss = str(s[len(s)-1])
+                for sub in s[1:]:
+                    ss = str(sub)
+                    try:
+                        b = b[ss]
+                    except KeyError:
+                        pass
+
+                return b.prev_key(ss)
         except AttributeError:
             raise MUMPSSyntaxError("Invalid identifier given for this var.",
                                    "INVALID IDENTIFIER")
 
-    def pprint_str(self):
+    def pprint_str(self, name):
         """Return a pretty-print style string which can be output when
         the user issues an argumentless `WRITE` command (spill symbols)."""
-        #TODO.md: implement this
-        out = ""
+        return self._pprint_str(name)
+
+    def _pprint_str(self, name, sub=None, depth=0):
+        """Recursive pretty-print function for this MUMPSLocal value."""
+        # Set up the output string and which sub node to iterate on
+        if sub is None:
+            out = "{name}={val}".format(name=name, val=str(self))
+            sub = self._b
+            name = "{name}(".format(name=name)
+        else:
+            out = "{name})={val}".format(name=name, val=str(sub[""]))
+
+        # Iterate on each key in the node
+        for k in sub:
+            if k == "":
+                continue
+            out = "{base}\n{next}".format(base=out,
+                                          next=self._pprint_str(
+                                              '{name}{sep}"{k}"'.format(
+                                                  name=name,
+                                                  sep="," if depth > 0 else "",
+                                                  k=k),
+                                              sub=sub[k],
+                                              depth=depth+1
+                                          )
+            )
         return out
+
+
+class SortedDict(blist.sorteddict):
+    """Sub-class the blist Sorted Dictionary to provide a next-key
+    functionality. Standard blist.sorteddict doesn't let you get the next
+    key in lexicographical order - it just throws a KeyError."""
+    def __init__(self, *args, **kwargs):
+        super(SortedDict, self).__init__(*args, **kwargs)
+        self._keys = self.keys()
+
+    def next_key(self, key):
+        """Return the next key in sorted order."""
+        try:
+            # We need to handle the null key differently, since that
+            # actually holds our so-called "root node" value, which doesn't
+            # sort in the rest of the tree in MUMPS
+            if key == "" and "" in self._keys:
+                i = 1
+            else:
+                i = self._keys.index(key) + 1
+
+            # Get the next key sequentially
+            k = self._keys[i]
+            return k
+        except ValueError:
+            # If we don't have an existing key, we unfortunately have to
+            # iterate through the entire key list to find the next
+            # key lexicographically
+            for k in self._keys:
+                if k < key:
+                    continue
+                elif k > key:
+                    return k
+
+            # If we don't find another one, then return the null key
+            return ""
+        except IndexError:
+            return ""
+
+    def prev_key(self, key):
+        """Return the previous key in sorted order."""
+        try:
+            # The null key matters less in the previous key case, since it
+            # will not sort "first"
+            if key == "":
+                i = len(self)
+            else:
+                i = self._keys.index(key)
+
+            # Do not return the null key for the reverse iteration
+            if (i == 1 and "" in self._keys) or (i == 0):
+                return ""
+
+            # Get the next key sequentially
+            k = self._keys[i-1]
+            return k
+        except ValueError:
+            # If we don't have an existing key, we unfortunately have to
+            # iterate through the entire key list to find the next
+            # key lexicographically
+            for k in reversed(self._keys):
+                if k > key:
+                    continue
+                elif k < key:
+                    return k
+
+            # If we don't find another one, then return the null key
+            return ""
+        except IndexError:
+            return ""
 
 
 class MUMPSSyntaxError(Exception):

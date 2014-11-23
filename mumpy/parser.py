@@ -760,10 +760,12 @@ class MUMPSParser:
         """intrinsic_func : ascii_func
                           | char_func
                           | extract_func
+                          | data_func
                           | find_func
                           | justify_func
                           | length_func
                           | name_func
+                          | order_func
                           | piece_func
                           | random_func
                           | reverse_func
@@ -797,6 +799,10 @@ class MUMPSParser:
         """char_func : CHAR LPAREN argument_list RPAREN"""
         p[0] = lang.instrinsic_char(p[3])
 
+    def p_data(self, p):
+        """data_func : DATA LPAREN variable RPAREN"""
+        p[0] = lang.intrinsic_data(p[3], self.env)
+
     def p_extract(self, p):
         """extract_func : EXTRACT LPAREN expression COMMA expression COMMA expression RPAREN
                         | EXTRACT LPAREN expression COMMA expression RPAREN
@@ -827,6 +833,12 @@ class MUMPSParser:
     def p_name(self, p):
         """name_func : NAME LPAREN identifier RPAREN"""
         p[0] = mumpy.MUMPSExpression(str(p[3]))
+
+    def p_order(self, p):
+        """order_func : ORDER LPAREN variable COMMA expression RPAREN
+                      | ORDER LPAREN variable RPAREN"""
+        rev = p[5].as_number() if len(p) == 7 else 1
+        p[0] = lang.intrinsic_order(p[3], self.env, rev=rev)
 
     def p_piece(self, p):
         """piece_func : piece_token LPAREN expression COMMA expression COMMA expression RPAREN

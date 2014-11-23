@@ -191,9 +191,21 @@ class MUMPSEnvironment:
     ###################
     # SYMBOL FUNCTIONS
     ###################
-    def get(self, key):
+    def __contains__(self, item):
+        """Return False if `item` is not defined in the environment. This
+        will be used for the `$DATA` operation on local variables."""
+        for frame in reversed(self._stack):
+            if item in frame:
+                return True
+
+        return False
+
+    def get(self, key, get_var=False):
         """Return the item named at the current stack level or fall down
-        the stack until we find an item with that name."""
+        the stack until we find an item with that name. If `get_var` is
+        specified, return access to the entire local variable object.
+        Most clients should not need to use `get_var`, but it is needed
+        for `$DATA` function calls."""
         # Check to see if the variable is a pointer, so we can return the
         # actual value from the stack it resides in
         item = self._get(key)
@@ -202,7 +214,7 @@ class MUMPSEnvironment:
 
         # Otherwise, we can just return the scalar value
         try:
-            return item[1].get(key)
+            return item[1].get(key) if not get_var else item[1]
         except AttributeError:
             return mumpy.mumps_null()
 
@@ -318,11 +330,10 @@ class MUMPSEnvironment:
 
     def print(self):
         """Print the stack frames in reverse order."""
-        #TODO.md: fix this to work with MUMPSLocals
         for i, frame in enumerate(reversed(self._stack)):
             self.writeln("[Stack Frame {}]".format(i))
             for k, v in frame.items():
-                self.writeln("{key}={val}".format(key=k, val=v[1]))
+                self.writeln(v[1].pprint_str(k))
 
     ###################
     # OUTPUT FUNCTIONS
