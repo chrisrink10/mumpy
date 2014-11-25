@@ -38,7 +38,7 @@ class MUMPSFile:
         # Try to open the intermediate representation first
         self.int_name = "{}.py".format(self.rou)
         self.int_path = os.path.join(self.path, self.int_name)
-        self.rou_name = "{}.rou".format(self.rou)
+        self.rou_name = "{}.m".format(self.rou)
         self.rou_path = os.path.join(self.path, self.rou_name)
 
         # Compile the routine and import the new intermediate rep
