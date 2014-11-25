@@ -4,15 +4,36 @@ in pure Python. It provides both a functional Read-Eval-Print Loop (REPL) for
 the M language and a routine interpreter, allowing routines to be executed
 directly from the command shell.
 
+For now, MUMPy is very much an pre-alpha quality product. Many core features
+of the M language are not yet implemented. Things such as `FOR` loops and
+argumentless `DO` commands to extend conditional line scope are not yet
+functional. Users interested in an actual functional M interpreter
+should investigate FIS GT.M,  which is an open source M interpreter that
+fully conforms to the ANSI M standard and will probably be a lot faster
+to boot (after all, it's written in C). 
+
+MUMPy is mostly just a fun
+learning project for me, though I would eventually like for it to be
+fully featured.
+
 ## Installation
 MUMPy can be installed using `pip`:
 
     pip install git+git://github.com/chrisrink10/mumpy@master
 
 ## Use
-To use MUMPy, simply fire it up from the command line: `mumpy.py`. 
+To use MUMPy interactively, simply fire it up from the command line: `mumpy.py`. 
 
-Command line options are available by invoking the `--help` parameter.
+MUMPy can interpret M source code files (files ending in a `*.m` extension) by
+typing `mumpy.py -f <NAME>` where `<NAME>` is the name of the routine,
+excluding the extension. MUMPy will compile a Python module with the same
+base name. Users should note that routine base names should match the first
+tag (line label, explained below) in the routine file. This means that 
+M routine names are limited to ASCII characters `%a-zA-Z0-9`, where the
+first character cannot be numeric `0-9`. Users can read more about 
+routines in the Routines section below.
+
+Other command line options are available by invoking the `--help` parameter. 
 
 ## MUMPS Primer
 I will provide a basic MUMPS primer for users who are unfamiliar with 
@@ -252,13 +273,48 @@ or local or global variable names. The `write` command will output the
 evaluated expressions or stored values to the current output device in
 strict left-to-right order.
 
+### Routines
+Routines are briefly introduced in the Use section of this document. In M,
+routines are the modular code-units by which programmers organize their
+code. Inside of routines, programmers can include 1 or more lines of
+M commands which perform some action or computation. Code can be further
+organized in these routines by tags, which are simply line labels. 
+Tag names start in the first character column of any given line (unlike
+commands which must start in the second character column of a line). 
+
+The routine filename (excluding extension) should always be the first tag
+in the routine. Subsequent tags may be in the same format as the routine
+tag defined above. Body tags (i.e. those tags which are not the routine
+tag) may also be integers. Tags starting with a numeric character must
+be entirely numeric, however. 
+
+Any tag in the routine may also have a list of argument names immediately
+following which are enclosed in parentheses and separated by commas 
+(without any spaces). Tags are also permitted to have no arguments; in 
+this format, they may either choose to have parentheses or not. Callers
+must use the proper format when calling into that tag (either as an
+extrinsic function or as a subroutine).
+
+Programmers are not required to follow any strict organizational requirements
+with their tags. One tag may freely flow into another or execution may
+halt (using a `HALT` command), return to a caller (using a `QUIT` command), or
+simply be redirected to another tag, line or routine (using a `GOTO` command).
+In practice, programmers typically format their routines into subroutines
+(tags which do not return a value via a `QUIT`) and extrinsic functions 
+(tags which do return a value). This allows M programmers to safely emulate
+other programming languages with more rigid code structure.
+
 ### Routine Example
 
      ;************************
-     ;* Comment Header
+     ;* Learn M example
+     ;*
+     ;* Users could copy this example into a file named
+     ;* LEARNM.m and then invoke `mumpy.py -f LEARNM` to
+     ;* see this routine in action.
      ;************************
-    ROUTINE ;
-     new var,name
+    LEARNM ;
+     new var,name,resp
      ;
      ; Ask the user their name
      read "What is your name? ",name
@@ -267,8 +323,28 @@ strict left-to-right order.
      set var="Hello and welcome to MUMPy, "_name_"!"
      write var
      ;
+     ; Ask them a question
+     set resp=$$AskQuestion("How are you today?",10)
+     ;
      ; Quit this subroutine
      q
+     ;
+     ; Ask the user a question and return their response.
+     ; Allow the caller to indicate the maximum number of characters. 
+    AskQuestion(question,max) ;
+     new resp
+     ;
+     ; Set a default maximum number of characters if none was given
+     set:(+max<1) max=40
+     ;
+     ; Write the question first (read cannot write non-string literals)
+     write !,question," "
+     ;
+     ; Read their response (maximum of 'max' chars)
+     read resp#max
+     ;
+     ; Return that value to the user
+     quit resp
 
 ## Resources
 The following resources have been invaluable to me as I have been writing
