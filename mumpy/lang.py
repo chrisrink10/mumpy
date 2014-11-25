@@ -34,6 +34,9 @@ _horolog_midnight = datetime.time()
 #   the parser should exit the current scope (subroutine or function)
 # - MUMPSCommandEnd() indicates to the parser that it should continue
 #   to the next line of execution (i.e. a conditional command evaluated False)
+# - MUMPSGotoLine() indicates that the parser should cease execution of
+#   the current line and immediately transfer control to a new tag without
+#   changing stack levels.
 ###################
 def new_var(args, env):
     """New the variables given in the argument list."""
@@ -77,6 +80,31 @@ def else_cmd(args, env):
     """Process a MUMPS ELSE command."""
     if not env.get("$T").equals(mumps_false()):
         raise MUMPSCommandEnd()
+
+
+def goto_cmd(args, env):
+    """Process a MUMPS GOTO command."""
+    for arg in args:
+        # Process the argument post-conditional
+        if arg.post is not None and not arg.post:
+            continue
+
+        # Check for valid routine
+        if arg.rou is None:
+            current_rou = env.get_current_rou()
+
+            try:
+                _ = current_rou.tag_line(arg.tag)
+            except AttributeError:
+                raise MUMPSSyntaxError("No current routine. Cannot GOTO "
+                                       "tag without routine.",
+                                       err_type="NO LINE")
+            except KeyError:
+                raise MUMPSSyntaxError("Tag not found in current routine.",
+                                       err_type="NO LINE")
+
+        # Raise a GotoLine exception to the parser
+        raise MUMPSGotoLine(arg)
 
 
 def kill(args, env):
@@ -205,6 +233,13 @@ class MUMPSCommandEnd(Exception):
     execution. Conditional commands raise this exception."""
     def __init__(self):
         pass
+
+
+class MUMPSGotoLine(Exception):
+    """An indicator to the parser to shift execution to the attached tag
+    and routine. """
+    def __init__(self, func):
+        self.func = func
 
 
 ###################
@@ -434,6 +469,31 @@ def current_job():
 # Most of the components are designed in such a way that they can be
 # assembled or compounded from repeated calls to the __init__ function.
 ###################
+class MUMPSLine:
+    """Represent a full line of MUMPS code."""
+    def __init__(self, cmd, other=None):
+        """Initialize the line"""
+        if isinstance(other, MUMPSLine):
+            self.list = other.list
+            self.list.append(cmd)
+        else:
+            self.list = [cmd]
+
+    def __repr__(self):
+        """Return a string representation of this command."""
+        return "MUMPSLine({cmds})".format(
+            cmds=self.list,
+        )
+
+    def execute(self):
+        """Execute the entire line of commands."""
+        for i, cmd in enumerate(self.list):
+            try:
+                cmd.execute()
+            except AttributeError:
+                pass
+
+
 class MUMPSCommand:
     """Represents a MUMPS command execution."""
     def __init__(self, cmd, args, env, post=None):
@@ -536,19 +596,19 @@ class MUMPSFuncSubCall:
 
         # Execute the function or subroutine
         self.env.push_func_to_stack(self)
-        p = self.parser.parse_tag(self.rou, self.tag)
+        ret = mumpy.trampoline(self.parser._parse_tag, self.rou, self.tag)
         self.env.pop_func_from_stack()
 
         # Check for syntax errors
-        if self.is_func and isinstance(p, type(None)):
+        if self.is_func and isinstance(ret, type(None)):
             raise MUMPSSyntaxError("Function call did not return value.",
                                    err_type="FUNCTION NO RETURN")
-        if not self.is_func and not isinstance(p, type(None)):
+        if not self.is_func and not isinstance(ret, type(None)):
             raise MUMPSSyntaxError("Subroutine call returned a value.",
                                    err_type="SUBROUTINE RETURN")
 
         # Return our value
-        return p
+        return ret
 
 
 class MUMPSExpression:

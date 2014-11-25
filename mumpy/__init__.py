@@ -13,8 +13,10 @@ from mumpy.lang import (MUMPSArgumentList,
                         MUMPSCommand,
                         MUMPSCommandEnd,
                         MUMPSExpression,
+                        MUMPSGotoLine,
                         MUMPSFuncSubCall,
                         MUMPSIdentifier,
+                        MUMPSLine,
                         MUMPSLocal,
                         MUMPSPointerIdentifier,
                         MUMPSReturn,
@@ -22,5 +24,6 @@ from mumpy.lang import (MUMPSArgumentList,
                         mumps_false,
                         mumps_null,
                         mumps_true)
-from mumpy.parser import MUMPSParser
+from mumpy.parser import (MUMPSParser,
+                          trampoline)
 from mumpy.tokenizer import MUMPSLexer

@@ -80,40 +80,24 @@ class MUMPSParser:
 
             # Execute the parsed command(s)
             try:
-                self.repl['parser'].parse(data, lexer=self.repl['lex'].lexer)
+                p = self.repl['parser'].parse(data,
+                                              lexer=self.repl['lex'].lexer)
+                p.execute()
             except (mumpy.MUMPSReturn, mumpy.MUMPSCommandEnd):
                 pass
+            except mumpy.MUMPSGotoLine as goto:
+                fn = goto.func
+                trampoline(self._parse_tag, fn.rou, fn.tag)
             except Exception as e:
                 raise mumpy.MUMPSSyntaxError(e)
         except KeyError:
             print("The REPL was not set up correctly. Quitting...")
 
-    def parse(self, data):
-        """Parse an arbitrary line of MUMPS code and return the output to
-        the caller."""
-        self.output = False
-
-        # Output the Lexer tokens
-        if self.debug:
-            self.rou['lex'].test(data)
-
-        # Reset the Lexer and parse the data
-        self.rou['lex'].reset()
-
-        # Execute the parsed command(s)
-        try:
-            self.rou['parser'].parse(data, lexer=self.rou['lex'].lexer)
-        except mumpy.MUMPSReturn as ret:
-            return ret
-        except mumpy.MUMPSCommandEnd:
-            pass
-        except Exception as e:
-            raise mumpy.MUMPSSyntaxError(e)
-
-        return None
-
     def parse_file(self, f, tag=None):
-        """Parse a MUMPSFile from the first tag or at a specified tag."""
+        """Parse a MUMPSFile from the first tag or at a specified tag.
+
+        This function is called from the interpreter if the user specifies
+        to run a routine."""
         # Check that we got a compiled file
         if not isinstance(f, mumpy.MUMPSFile):
             raise TypeError("Please specify a valid MUMPS routine.")
@@ -131,11 +115,15 @@ class MUMPSParser:
 
             self.rou['lex'].reset()
             try:
-                self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
+                p = self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
+                p.execute()
             except mumpy.MUMPSReturn as ret:
                 return ret.value()
             except mumpy.MUMPSCommandEnd:
                 continue
+            except mumpy.MUMPSGotoLine as goto:
+                fn = goto.func
+                return trampoline(self._parse_tag, fn.rou, fn.tag)
 
         # Reset the Lexer and Parser to the correct state
         self.rou['lex'].reset()
@@ -143,10 +131,18 @@ class MUMPSParser:
         # Return any resulting expression to the caller
         return None
 
-    def parse_tag(self, f, tag):
-        """Parse a MUMPSFile starting at the specified tag. This function is
-        intended to be called internally when the parser identifies a
-        function or subroutine call."""
+    def _parse_tag(self, f, tag):
+        """Parse a MUMPSFile starting at the specified tag.
+
+        This function is intended to be called internally when the parser
+        identifies a function or subroutine call.
+
+        Note that the return from this function is always a lambda which
+        requires no parameters. Callers are advised to use the provided
+        trampoline function to avoid potentially enormous stack expansion
+        since MUMPS code may potentially implement a GOTO loop, which
+        would result in subsequent calls to this function (and, thus,
+        an ever-increasing stack size)."""
         # Check that we got a compiled file
         if not isinstance(f, mumpy.MUMPSFile):
             raise TypeError("Please specify a valid MUMPS routine.")
@@ -162,9 +158,13 @@ class MUMPSParser:
             self.rou['lex'].reset()
 
             try:
-                self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
+                p = self.rou['parser'].parse(line, lexer=self.rou['lex'].lexer)
+                p.execute()
             except mumpy.MUMPSReturn as ret:
-                return ret.value()
+                return lambda v=ret: v.value()
+            except mumpy.MUMPSGotoLine as goto:
+                return lambda cmd=self._parse_tag, fn=goto.func: cmd(fn.rou,
+                                                                     fn.tag)
             except mumpy.MUMPSCommandEnd:
                 continue
 
@@ -172,20 +172,27 @@ class MUMPSParser:
         self.rou['lex'].reset()
 
         # Return any resulting expression to the caller
-        return None
+        return lambda: None
 
-    def parse_xecute(self, args, env):
-        """Parse an expression for an XECUTE command."""
+    def _parse_xecute(self, args, env):
+        """Parse an expression for an XECUTE command.
+
+        This function is called internally when an XECUTE command is
+        encountered."""
         self.output = False
         for expr in args:
             self.repl['lex'].reset()
             try:
-                self.repl['parser'].parse(str(expr),
-                                          lexer=self.repl['lex'].lexer)
+                p = self.repl['parser'].parse(str(expr),
+                                              lexer=self.repl['lex'].lexer)
+                p.execute()
             except mumpy.MUMPSReturn as ret:
                 return ret.value()
             except mumpy.MUMPSCommandEnd:
                 continue
+            except mumpy.MUMPSGotoLine as goto:
+                fn = goto.func
+                return trampoline(self._parse_tag, fn.rou, fn.tag)
             except Exception as e:
                 raise mumpy.MUMPSSyntaxError(e)
 
@@ -201,23 +208,29 @@ class MUMPSParser:
         """start : tag_line
                  | command_line
                  | comment_line"""
-        pass
+        p[0] = p[1]
 
     def p_tag_line(self, p):
         """tag_line : tag SPACE valid_input
-                    | tag SPACE comment"""
-        pass
+                    | tag SPACE comment
+                    | tag SPACE
+                    | tag multiple_spaces
+                    | tag"""
+        if len(p) < 4:
+            raise mumpy.MUMPSSyntaxError("Expected COMMENT or COMMAND "
+                                         "after TAG.", err_type="NO LINE")
+        p[0] = p[3]
 
     def p_command_line(self, p):
         """command_line : SPACE valid_input SPACE COMMENT
                         | SPACE valid_input multiple_spaces COMMENT
                         | SPACE valid_input multiple_spaces
                         | SPACE valid_input"""
-        pass
+        p[0] = p[2]
 
     def p_comment_line(self, p):
         """comment_line : SPACE comment"""
-        pass
+        p[0] = p[2]
 
     def p_multiple_spaces(self, p):
         """multiple_spaces : multiple_spaces SPACE
@@ -226,18 +239,24 @@ class MUMPSParser:
 
     def p_comment(self, p):
         """comment : COMMENT"""
-        pass
+        p[0] = mumpy.MUMPSLine(None)
 
     def p_input(self, p):
         """valid_input : valid_input SPACE command
                        | valid_input any_command
                        | any_command"""
-        pass
+        l = len(p)
+        if l == 4:
+            p[0] = mumpy.MUMPSLine(p[3], p[1])
+        elif l == 3:
+            p[0] = mumpy.MUMPSLine(p[2], p[1])
+        else:
+            p[0] = mumpy.MUMPSLine(p[1])
 
     def p_any_command(self, p):
         """any_command : command
                        | command_no_arg"""
-        p[1].execute()
+        p[0] = p[1]
 
     def p_command_argument(self, p):
         """command : write_command
@@ -253,7 +272,8 @@ class MUMPSParser:
                    | if_command
                    | open_command
                    | close_command
-                   | use_command"""
+                   | use_command
+                   | goto_command"""
         p[0] = p[1]
 
     def p_command_no_arg(self, p):
@@ -306,9 +326,16 @@ class MUMPSParser:
         pass
 
     def p_goto_command(self, p):
-        """goto_command : GOTO SPACE
-                        | GOTO COLON expression SPACE """
-        pass
+        """goto_command : GOTO SPACE goto_call_list
+                        | GOTO COLON expression SPACE goto_call_list"""
+        if len(p) > 4:
+            post = p[3]
+            args = p[5]
+        else:
+            post = None
+            args = p[3]
+
+        p[0] = mumpy.MUMPSCommand(lang.goto_cmd, args, self.env, post=post)
 
     def p_kill_command(self, p):
         """kill_command : KILL SPACE variable_list
@@ -430,7 +457,7 @@ class MUMPSParser:
             args = p[3]
 
         # Execute the code in each expression
-        p[0] = mumpy.MUMPSCommand(self.parse_xecute, args, self.env, post=post)
+        p[0] = mumpy.MUMPSCommand(self._parse_xecute, args, self.env, post=post)
 
     def p_quit(self, p):
         """quit_command : QUIT
@@ -475,6 +502,35 @@ class MUMPSParser:
     def p_routine_global(self, p):
         """routine_global : CARET identifier"""
         p[0] = p[2]
+
+    def p_goto_call_list(self, p):
+        """goto_call_list : goto_call_list COMMA goto_call
+                          | goto_call"""
+        if len(p) == 4:
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_goto_call(self, p):
+        """goto_call : goto_tag_routine
+                     | goto_tag
+                     | goto_routine
+                     | goto_call COLON expression"""
+        if len(p) == 4:
+            p[1].post = p[3]
+        p[0] = p[1]
+
+    def p_goto_tag_routine(self, p):
+        """goto_tag_routine : identifier routine_global"""
+        p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, self, rou=p[2])
+
+    def p_goto_tag(self, p):
+        """goto_tag : identifier"""
+        p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, self)
+
+    def p_goto_routine(self, p):
+        """goto_routine : routine_global"""
+        p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, self, rou=p[1])
 
     def p_subroutine_call_list(self, p):
         """subroutine_call_list : subroutine_call_list COMMA subroutine_call
@@ -1058,7 +1114,7 @@ class MUMPSParser:
 
     def p_not_or_expr(self, p):
         """not_or_expr : expression NOT OR expression"""
-        p[0] = p[1] | p[4]
+        p[0] = ~ (p[1] | p[4])
 
     ###################
     # COMPARISON
@@ -1170,3 +1226,19 @@ class MUMPSParser:
 def _device_params_to_dict(params):
     """Convert a list of device parameters to a dictionary."""
     return {t[0]: t[1] for t in params}
+
+
+def trampoline(f, *args, **kwargs):
+    """Function to trampoline any functions which may have a tendency to
+    otherwise cause enormous amounts of stack inflation or expansion.
+
+    Given a function `f` with arguments `args` and `kwargs` which returns
+    another function, execute the return until it is no longer callable."""
+    return _trampoline_private(f(*args, **kwargs))
+
+
+def _trampoline_private(func):
+    """Private helper for the trampoline function above."""
+    while callable(func):
+        func = func()
+    return func

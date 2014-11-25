@@ -171,10 +171,10 @@ class MUMPSFile:
         """Return the tag body of the given tag."""
         lntag = sorted([v['line'] for _, v in self.inter.tags.items()])
         start = lntag.index(self.inter.tags[str(tag)]['line'])
-        try:
-            return self.inter.lines[lntag[start]:lntag[start+1]]
-        except IndexError:
-            return self.inter.lines[lntag[start]:]
+        #try:
+        #    return self.inter.lines[lntag[start]:lntag[start+1]]
+        #except IndexError:
+        return self.inter.lines[lntag[start]:]
 
     def lines(self):
         """Return the list of routine lines."""

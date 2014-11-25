@@ -11,18 +11,18 @@ TESTROU ;
  ;
  ; Nice welcome message before the beat drops
  w "---------------------------------------------------------"
- w "Welcome to MUMPy!"
- w "This script will run the MUMPS-side Unit Tests for MUMPy."
- w "---------------------------------------------------------"
- w "Hold on..."
+ w !,"Welcome to MUMPy!"
+ w !,"This script will run the MUMPS-side Unit Tests for MUMPy."
+ w !,"---------------------------------------------------------"
+ w !,"Hold on..."
  ;
- ; Check that EQUALS comparisons are working, quit if not.
- q:($$TestEquals())
- q:($$TestLogic())
+ ; Check that EQUALS comparisons and basic logic are working
+ s fails=fails+$$TestEquals()
+ s fails=fails+$$TestLogic()
  ;
  ; Likewise, we will need Regular and Pointer function arguments to work
- q:($$TestRegularArgs())
- q:($$TestPointerArgs())
+ s fails=fails+$$TestRegularArgs()
+ s fails=fails+$$TestPointerArgs()
  ;
  ; Perform tests
  s fails=fails+$$TestExpressionReduction()
@@ -31,17 +31,19 @@ TESTROU ;
  s fails=fails+$$TestStringOp()
  s fails=fails+$$TestIntrinsic()
  s fails=fails+$$TestAssumedVars()
+ s fails=fails+$$TestGoto()
+ s fails=fails+$$TestGotoLoop()
  ;
  ; Report the results
- w "---------------------------------------------------------"
- w:(fails=1) "There was 1 test which failed."
- w:(fails>1) "There were "_fails_" tests which failed."
- w:(fails=0) "Success!"
- w "---------------------------------------------------------"
+ w !,"---------------------------------------------------------"
+ w:(fails=1) !,"There was 1 test which failed."
+ w:(fails>1) !,"There were "_fails_" tests which failed."
+ w:(fails=0) !,"Success!"
+ w !,"---------------------------------------------------------",!
  q
  ;
  ;**************************
- ;* Test utility function
+ ;* Test utility functions
  ;**************************
  ; Input the result from the test and the expected value.
  ; Pass in the failure count as a pointer and an error message.
@@ -50,7 +52,34 @@ TESTROU ;
 EvalTest(res,exp,fails,msg) ;
  q:(res=exp)
  s fails=fails+1
- w msg_" >>> res="_res_" exp="_exp
+ w !,msg_" >>> res="_res_" exp="_exp
+ q
+ ;
+ ; To use the Xecute test, instead of passing in the evaluated expression,
+ ; pass in the expression as a string and  it will be evaluated within.
+ ; This helps since this function can then report the failing expression.
+ ;
+ ; Ex. d XecuteTest("'1",0,.fail,msg)
+XecuteTest(expr,res,fail,msg) ;
+ n val,code
+ s code="s val="_expr
+ x code
+ q:(val=res)
+ s fails=fails+1
+ s msg=msg_$C(10)_" - "_expr_" gave "_val_", expected "_res
+ q
+ ;
+ ; Report the results of a set of tests
+ReportResults(fail,msg) ;
+ i +fail=0 w ?48,"[SUCCESS]"
+ e  w ?51,"[FAIL]" w:(msg'="") !,msg
+ q
+ ;
+ ; If you can't use one of the EvalTest or XecuteTest methods above
+ ; to add to your output error message, use this so it can be output
+ ; properly using ReportResults.
+AddMessage(msg,add) ;
+ s msg=msg_$C(10)_add
  q
  ;
  ;**************************
@@ -59,45 +88,68 @@ EvalTest(res,exp,fails,msg) ;
  ; The rest of the tests are invalid if equals doesn't work since we
  ; use the equals and not equals operators to check if a test succeeded.
 TestEquals() ;
- n val,msg
- s msg="Equals failed. Quitting"
- i '(1=1) w msg q 1
- s val=(1'=1)
- i val=1 w msg q 1
- q 0
+ n val,msg,fail
+ w !,"Testing equals operators..."
+ ;
+ ; String equals and not equals
+ d XecuteTest("""A""=""B""",0,.fail,.msg)
+ d XecuteTest("""A""'=""B""",1,.fail,.msg)
+ d XecuteTest("""C""=""C""",1,.fail,.msg)
+ d XecuteTest("""C""'=""C""",0,.fail,.msg)
+ d XecuteTest("""a""'=""A""",1,.fail,.msg)
+ ;
+ ; Numeric equals
+ d XecuteTest("(1=1)",1,.fail,.msg)
+ d XecuteTest("'(1=1)",0,.fail,.msg)
+ d XecuteTest("(1'=1)",0,.fail,.msg)
+ d XecuteTest("(1=2)",0,.fail,.msg)
+ d XecuteTest("(1=""1"")",1,.fail,.msg)
+ d XecuteTest("(1=01)",1,.fail,.msg)
+ d XecuteTest("(1=+""01"")",1,.fail,.msg)
+ ;
+ ; Cross-type equals
+ d XecuteTest("(1=""01"")",0,.fail,.msg)
+ d XecuteTest("(""0.100""=.1)",0,.fail,.msg)
+ d XecuteTest("(""0.1""=.100)",0,.fail,.msg)
+ d XecuteTest("(.1=""0.1"")",0,.fail,.msg)
+ d XecuteTest("(.1=+""0.1"")",0,.fail,.msg)
+ ;
+ d ReportResults(fail,msg)
+ q +fail
  ;
  ;**************************
  ;* Logic Tests
  ;**************************
 TestLogic() ;
- n val
- w "Testing logic operators..."
+ n val,fail,msg
+ w !,"Testing logic operators..."
  ;
  ; Testing logical NOT...
- s val='1 q:(val=1) 1
- s val='0 q:(val=0) 1
+ d XecuteTest("'1",0,.fail,.msg)
+ d XecuteTest("'0",1,.fail,.msg)
  ;
  ; Testing logical AND...
- s val=(1&1) q:(val=0) 1
- s val=(1&0) q:(val=1) 1
- s val=(0&0) q:(val=1) 1
+ d XecuteTest("(1&1)",1,.fail,.msg)
+ d XecuteTest("(1&0)",0,.fail,.msg)
+ d XecuteTest("(0&0)",0,.fail,.msg)
  ;
  ; Testing logical NOT AND...
- s val=(1'&1) q:(val=1) 1
- s val=(1'&0) q:(val=0) 1
- s val=(0'&0) q:(val=0) 1
+ d XecuteTest("(1'&1)",0,.fail,.msg)
+ d XecuteTest("(1'&0)",1,.fail,.msg)
+ d XecuteTest("(0'&0)",1,.fail,.msg)
  ;
  ; Testing logical OR...
- s val=(1!1) q:(val=0) 1
- s val=(1!0) q:(val=0) 1
- s val=(0!0) q:(val=1) 1
+ d XecuteTest("(1!1)",1,.fail,.msg)
+ d XecuteTest("(1!0)",1,.fail,.msg)
+ d XecuteTest("(0!0)",0,.fail,.msg)
  ;
  ; Testing logical NOT OR...
- s val=(1'!1) q:(val=1) 1
- s val=(1'!0) q:(val=1) 1
- s val=(0'!0) q:(val=0) 1
+ d XecuteTest("(1'!1)",0,.fail,.msg)
+ d XecuteTest("(1'!0)",0,.fail,.msg)
+ d XecuteTest("(0'!0)",1,.fail,.msg)
  ;
- q 0
+ d ReportResults(fail,msg)
+ q +fail
  ;
  ;**************************
  ;* Regular Argument Tests
@@ -107,14 +159,15 @@ TestLogic() ;
  ; tests depends on this, we need to check this early.
 TestRegularArgs() ;
  n val,name,fail
- w "Testing regular arguments..."
+ w !,"Testing regular arguments..."
+ ;
  s val=1
  s name="Chris"
  s name("last")="Rink"
  s fail=$$testRegArgs(val,name)
- q:(fail=0) 0
- w "[FAIL]"
- q 1
+ ;
+ d ReportResults(fail)
+ q +fail
  ;
 testRegArgs(val,name) ;
  q:(val'=1) 1
@@ -128,21 +181,23 @@ testRegArgs(val,name) ;
  ; Pointer arguments are also used for the test evaluator, so we'll need
  ; to make sure that these work.
 TestPointerArgs() ;
- n val,name
- w "Testing pointer arguments..."
+ n val,name,fail
+ w !,"Testing pointer arguments..."
  ;
  ; Test that calling functions receive modifications to pointer arguments
  s val=1
  d testPtrArgs(.val)
- i val'=6 w "[FAIL]" q 1
+ i val'=6 s fail=fail+1
  ;
  ; Test that pointer arguments also pass the subnode access
  s name="Chris"
  s name("Last")="Rink"
  s name("Last","Suffix")="Jr"
  s name("MI")="L"
- i $$testPtrArgs4(.name) w "[FAIL]" q 1
- q 0
+ i $$testPtrArgs4(.name) s fail=fail+1
+ ;
+ d ReportResults(fail)
+ q +fail
  ;
 testPtrArgs(arg) ;
  s arg=arg+1
@@ -167,7 +222,7 @@ testPtrArgs4(arg) ;
  ;**************************
 TestArithmetic() ;
  n res,exp,fail,msg
- w "Testing arithmetic..."
+ w !,"Testing arithmetic..."
  ;
  ; Test unary PLUS operators
  s msg=" - A unary PLUS operator failed"
@@ -242,6 +297,7 @@ TestArithmetic() ;
  d EvalTest(4**(-2),0.0625,.fail,msg)
  d EvalTest(27**(1/3),3,.fail,msg)
  ;
+ d ReportResults(fail)
  q +fail
  ;
  ;**************************
@@ -249,7 +305,7 @@ TestArithmetic() ;
  ;**************************
 TestStringOp() ;
  n str,val,fail
- w "Testing string operations..."
+ w !,"Testing string operations..."
  ;
  ; Test contains operator
  s msg=" - String contains failed."
@@ -284,6 +340,7 @@ TestStringOp() ;
  d EvalTest("First"_" Second","First Second",.fail,msg)
  d EvalTest("First"_" "_"Second","First Second",.fail,msg)
  ;
+ d ReportResults(fail)
  q +fail
  ;
  ;**************************
@@ -291,7 +348,7 @@ TestStringOp() ;
  ;**************************
 TestIntrinsic() ;
  n val,msg,fail,var
- w "Testing intrinsic functions..."
+ w !,"Testing intrinsic functions..."
  ;
  ; Test $ASCII function
  s msg=" - $ASCII intrinsic failed."
@@ -397,30 +454,32 @@ TestIntrinsic() ;
  d EvalTest($TR("Chris","ri","e"),"Ches",.fail,msg)
  d EvalTest($TR("Chris","","el"),"Chris",.fail,msg)
  ;
+ d ReportResults(fail)
  q +fail
  ;
  ;**************************
  ;* IF/ELSE Tests
  ;**************************
 TestIfElse() ;
- n val,fail
- w "Testing IF/ELSE..."
+ n val,fail,msg
+ w !,"Testing IF/ELSE..."
  ;
  ; Verify that ELSE doesn't fire initially ($T is true on env start)
- e  s fail=fail+1 w "$T not properly set."
+ e  s fail=fail+1 d AddMessage(.msg," - $T not properly set.")
  ;
  ; Verify that ELSE doesn't fire if $T is true
  i 1 s val=0
- e  s fail=fail+1 w "ELSE failed."
+ e  s fail=fail+1 d AddMessage(.msg," - ELSE failed.")
  ;
  ; Verify that an argumentless IF will succeed since $T is still true
  i  s val=1
- i val'=1 s fail=fail+1 w "Argumentless IF failed."
+ i val'=1 s fail=fail+1 d AddMessage(.msg," - Argumentless IF failed.")
  ;
  ; Verify that ELSE does fire if $T is false
- i 0 s fail=fail+1 w "IF failed."
+ i 0 s fail=fail+1 d AddMessage(.msg," - IF failed.")
  e  s val=0
  ;
+ d ReportResults(fail,msg)
  q +fail
  ;
  ;**************************
@@ -438,7 +497,7 @@ TestIfElse() ;
  ;     we moved to deferred evaluation, a `write x` would show `1`.
 TestExpressionReduction() ;
  n val,fail
- w "Testing deferred expression evaluation..."
+ w !,"Testing deferred expression evaluation..."
  ;
  ; Test with basic addition
  s val=1,val=val+1,val=val+1,val=val+1
@@ -456,6 +515,7 @@ TestExpressionReduction() ;
  s val=10,val=val-$$testExpr(3),val=val*$$testExpr(3)
  s:(val'=21) fail=fail+1
  ;
+ d ReportResults(fail)
  q +fail
 testExpr(arg) ;
  q arg
@@ -468,16 +528,49 @@ testExpr(arg) ;
  ; frame is popped.
 TestAssumedVars() ;
  n val,fail,%
- w "Testing assumed variables..."
+ w !,"Testing assumed variables..."
+ ;
  s val=1
- d testAssumedSub(),testAssumedSub()
- s %=$$testAssumedFunc(),%=$$testAssumedFunc()
+ d testAssumedSub()
+ d testAssumedSub()
+ s %=$$testAssumedFunc()
+ s %=$$testAssumedFunc()
+ ;
  s:(val'=5) fail=fail+1
+ d ReportResults(fail)
  q +fail
 testAssumedSub() ;
  s val=val+1
  q
-testAssumedFunc()
+testAssumedFunc() ;
  s val=val+1
  q 1
+ ;
+ ;**************************
+ ;* GOTO Test
+ ;**************************
+TestGoto() ;
+ w !,"Testing GOTO functionality..."
+ g testGoto
+ d ReportResults(1)
+ q 1
+testGoto ;
+ d ReportResults(0)
+ q 0
+ ;
+ ;**************************
+ ;* GOTO Looping Test
+ ;**************************
+TestGotoLoop() ;
+ n val,fail
+ w !,"Testing GOTO loops..."
+ ;
+ s val=1
+tglStart ;
+ s val=val+1
+ g:(val<100) tglStart
+ ;
+ s:(val'=100) fail=fail+1
+ d ReportResults(fail)
+ q +fail
  q

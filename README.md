@@ -4,10 +4,6 @@ in pure Python. It provides both a functional Read-Eval-Print Loop (REPL) for
 the M language and a routine interpreter, allowing routines to be executed
 directly from the command shell.
 
-Features:
-
- * Allows calling Python functions from M code
-
 ## Installation
 MUMPy can be installed using `pip`:
 
@@ -26,7 +22,7 @@ of the REPL format, the syntactic requirements enforced on routines are
 relaxed in REPL mode. White space remains important, but there are 
 slightly different syntactic requirements.
 
-### MUMPS Commands
+### Commands
 MUMPS commands indicate an action for the interpreter to take. These 
 commands have two forms, the full word and an abbreviated format 
 (`write` and `w`, for example). A command is evaluated case insensitive, 
@@ -69,7 +65,7 @@ syntactic sugar for performing the command twice in a row:
     mumpy > write "Hello, " write "world!"
     Hello, world!
 
-### MUMPS Data Types and Expressions
+### Data Types
 Strictly speaking, the only data type in MUMPS is the string. MUMPS does 
 handle numeric values as well, though these are really just a
 specialized case of strings.
@@ -92,8 +88,97 @@ The conversions can be seen as below:
     39
     mumpy > write +"+---3.5.5"
     -3.5
+    
+There is no boolean data type in MUMPS, but certain operations evaluate
+to so called 'truth-valued' expressions. In reality, these expressions
+evaluate to either `0` (False) or `1` (True). Note that this does still
+cause the M interpreter to perform the numeric cast described above on
+string values. Any numeric value which is not 0 (including negative 
+values) is evaluated as true. 
+    
+### Expressions
+The M language implements many of the same operators that you are familiar
+with in other languages. Unlike other languages, however, you are not
+permitted to use any language elements outside of the context of a command.
+Thus it would not be legal for the (otherwise valid) expression `1+1` outside
+of some command. You could make that expression legal if you were to write
+it like `write 1+1`, which would produce the value `2`. Likewise, you could
+assign the result of that expression to a variable with `set x=1+1`. There
+are many other legal places where programmers can include expressions.
 
-### MUMPS Variables
+Expressions can be arbitrarily complex, but programmers should note that
+all binary operators operate at the same level of precedence. In practice,
+this means that all binary operations evaluate in strict left-to-right order.
+Since this differs from most common programming languages and typical
+arithmetic computations, this can be quite inconvenient. However, programmers
+can modify the order of precedence by surrounding expressions with 
+parentheses. In the example below, we demonstrate the unexpected default
+output and the easy modification to force standard order of operations.
+
+    mumpy > write 1+2*4
+    12
+    mumpy > write 1+(2*4)
+    9
+    
+Unary operators (such as the unary plus shown earlier) operate at a higher
+level of precedence than the binary operators. These operators always
+associate right. Given their higher precedence, programmers should not
+need to make any special provision to force these operators to act as
+they would normally expect.
+
+MUMPS provides the following binary operators standard. Note that if the
+operand is noted as __strictly__ numeric, this means that both operands
+will be casted to numbers as described in the previous section. Likewise,
+operations which are __strictly__ string will not perform any numeric
+evaluation of the operands, even if both are numeric. Truth-valued operations
+are the operations which produce truth-valued results, as described above.
+
+ * Strictly numeric operations (return result of operation)
+     * Addition: `+`
+     * Subtraction: `-`
+     * Multiplication: `*`
+     * Division: `/`
+     * Integer division: `\`
+     * Modulus: `#`
+     * Exponentiation: `**`
+ * Strictly numeric comparisons (return truth-valued result)
+     * Greater than: `>`
+     * Not greater than: `'>`
+     * Less than: `<`
+     * Not less than: `'<`
+ * Strictly string operations (return result of operation)
+     * Concatenation: `_`
+ * String comparisons (return truth-valued result)
+     * Follows (left operand follows right in binary byte order): `]`
+     * Sorts after (left operand sorts after right in collation order): `]]`
+     * Contains (left operand contains right operand): `[`
+     * Pattern match (left operand matches pattern in right operand): `?`
+ * Truth-valued operations (return truth-valued result)
+     * And: `&`
+     * Not and: `'&`
+     * Or: `!`
+     * Not or: `'!`
+     
+The MUMPS unary operators are `+` and `-`, producing numeric values of either
+positive or negative (or zero) value from any value (casting strings as
+seen above). There is also a truth-valued `'` (Not) operator which will
+negate the numeric value of an expression.
+
+The only operator left out of the above list is the equals operator `=` and
+it's negation `'=`. Equality comparison does not perform any strict casting
+as many of the other operators do. A comparison between two strings will
+test for string equality. A comparison between two numbers will test for
+numeric equality. A comparison between a string and number will test for
+string equality. This can lead to some perhaps unintuitive results:
+
+    mumpy > write "0.1"=.100
+    0
+    mumpy > write 1="01"
+    0
+    mumpy > write 1=+"01"
+    1
+
+### Variables
 MUMPS variables come in one of two flavors, local and global. Local variables
 will be familiar to users of nearly every other programming language. 
 Global variables may _sound_ familiar, but they have a somewhat different
