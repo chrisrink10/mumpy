@@ -107,6 +107,96 @@ def goto_cmd(args, env):
         raise MUMPSGotoLine(arg)
 
 
+def for_start(args, env):
+    """Raise the MUMPSForLine exception to indicate to the line that it
+    should let the `FOR` command take over execution of the rest of the line."""
+    raise MUMPSForLine(_for_cmd)
+
+
+def _for_cmd(args, env, cmds):
+    """Implement the MUMPS FOR command."""
+    def _execute_commands():
+        """Loop to execute each remaining command we were given. Return
+        True if the loop should continue, False if a `QUIT` was executed
+        and the loop should end."""
+        for cmd in cmds:
+            try:
+                cmd.execute()
+            except MUMPSReturn as ret:
+                if ret.value() is not None:
+                    raise MUMPSSyntaxError("Cannot QUIT with value "
+                                           "from FOR loop",
+                                           err_type="ILLEGAL QUIT ARG")
+                else:
+                    return False
+        return True
+
+    # Unlimited FOR loops will have no args and loop until they quit
+    if args is None:
+        done = False
+        while not done:
+            done = not _execute_commands()
+        return
+
+    # In limited FOR loops, we'll create a generator for the values
+    var, gen = _process_for_args(args)
+    for arg in gen():
+        # Update the value of the control variable in the environment
+        set_var(((var, arg),), env)
+
+        # Execute the remaining commands
+        if not _execute_commands():
+            break
+
+
+def _process_for_args(args):
+    """Create a generator which can be used by the FOR command for iteration.
+    If the loop conditions are invalid, return an empty generator."""
+    # Prepare some simple starting values
+    start = args['start'].reduce()
+    inc = args['inc'].reduce() if 'inc' in args else None
+    end = args['end'].reduce() if 'end' in args else None
+    others = args['others'] if 'others' in args else ()
+
+    # Create a comparator based on the increment value
+    if inc is not None:
+        if inc.as_number() > 0:
+            cmp = lambda v, e: (v < e).reduce()
+        else:
+            cmp = lambda v, e: (v > e).reduce()
+    else:
+        cmp = lambda v, e: False
+
+    # Create our generator
+    def _generator():
+        # Yield the first value
+        val = start
+        yield val.reduce()
+
+        # Increment as long as we haven't exceeded the end value
+        while ((end is None) and (inc is not None)) or cmp(val, end):
+            val += inc
+            yield val.reduce()
+
+        # If there are any other expressions listed afterwards, yield those
+        for other in others:
+            yield other.reduce()
+
+    # Create an empty generator for invalid ranges
+    def _empty_generator():
+        yield from ()
+
+    # Check that we got a legal range of values
+    # i.e. the end minus the start divided by the
+    # increment must be non-negative
+    if end is not None and inc is not None:
+        diff = (end - start) if end is not None else 1
+        if not (diff / inc) > 0:
+            return args['var'], _empty_generator
+
+    return args['var'], _generator
+
+
 def kill(args, env):
     """Kill the variables given in the argument list."""
     for var in args:
@@ -238,6 +328,13 @@ class MUMPSCommandEnd(Exception):
 class MUMPSGotoLine(Exception):
     """An indicator to the parser to shift execution to the attached tag
     and routine. """
+    def __init__(self, func):
+        self.func = func
+
+
+class MUMPSForLine(Exception):
+    """An indicator to the MUMPS line execute function to defer the
+    remainder of command executions to the `FOR` command contained herein."""
     def __init__(self, func):
         self.func = func
 
@@ -491,7 +588,14 @@ class MUMPSLine:
             try:
                 cmd.execute()
             except AttributeError:
+                # Empty lines will return a command of None
+                # Empty lines are generally comments - we ignore these
                 pass
+            except MUMPSForLine as f:
+                # For exceptions instruct us to transfer execution of the line
+                # to the FOR command and stop our own execution path
+                f.func(cmd.args, cmd.env, self.list[i+1:])
+                break
 
 
 class MUMPSCommand:
@@ -504,7 +608,7 @@ class MUMPSCommand:
             raise TypeError("A callable command function is expected.")
 
         # Check that we got an actual argument list
-        if not isinstance(args, (type(None), MUMPSArgumentList)):
+        if not isinstance(args, (type(None), dict, MUMPSArgumentList)):
             raise MUMPSSyntaxError("Commands require a valid argument list.",
                                    err_type="INVALID ARGUMENTS")
 
@@ -662,8 +766,10 @@ class MUMPSExpression:
         Ex. `set x=1,x=x+1` should yield a value of `2`; reduce() reduces the
         value of `x+1` as it is saved into `x` again to avoid infinite
         recursion when trying to return the value."""
-        self._val = lambda v=self._val(): v
-        return self
+        #self._val =
+        return MUMPSExpression(
+            lambda v=self._val(): v
+        )
 
     def __len__(self):
         """Return the expression length."""
@@ -713,11 +819,28 @@ class MUMPSExpression:
             )
         )
 
+    def __ge__(self, other):
+        """Return 1 if this MUMPS expression is greater than or equal to
+        other."""
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                int(left.as_number() >= _other_as_number(right))
+            )
+        )
+
     def __lt__(self, other):
         """Return 1 if this MUMPS expression is less than other."""
         return MUMPSExpression(
             lambda left=self, right=other: (
                 int(left.as_number() < _other_as_number(right))
+            )
+        )
+
+    def __le__(self, other):
+        """Return 1 if this MUMPS expression is less than or equal to other."""
+        return MUMPSExpression(
+            lambda left=self, right=other: (
+                int(left.as_number() <= _other_as_number(right))
             )
         )
 

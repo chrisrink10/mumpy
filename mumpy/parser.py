@@ -46,9 +46,9 @@ class MUMPSParser:
         self.rou['lex'] = mumpy.MUMPSLexer(is_rou=True, debug=debug)
         self.tokens = self.rou['lex'].tokens
         self.rou['parser'] = yacc.yacc(module=self, start='start',
-            debug=logging.DEBUG if debug else logging.ERROR,
-            debuglog=self.debug_log,
-            tabmodule='routab')
+                                       debug=debug,
+                                       debuglog=self.debug_log,
+                                       tabmodule='routab')
 
         # The REPL and XECUTE commands require slightly different
         # lexing and parsing rules, so we maintain two lexer and parsers
@@ -273,7 +273,8 @@ class MUMPSParser:
                    | open_command
                    | close_command
                    | use_command
-                   | goto_command"""
+                   | goto_command
+                   | for_command"""
         p[0] = p[1]
 
     def p_command_no_arg(self, p):
@@ -281,7 +282,8 @@ class MUMPSParser:
                           | halt_command
                           | write_symbols
                           | if_command_no_args
-                          | else_command"""
+                          | else_command
+                          | for_unlimited"""
         p[0] = p[1]
 
     ###################
@@ -315,15 +317,57 @@ class MUMPSParser:
         """else_command : ELSE no_argument"""
         p[0] = mumpy.MUMPSCommand(lang.else_cmd, None, self.env)
 
-    def p_for_limited(self, p):
-        """for_limited : FOR SPACE variable EQUALS expression COLON expression COLON expression
-                       | FOR SPACE variable EQUALS expression COLON expression
-                       | FOR SPACE variable EQUALS expression"""
-        pass
+    def p_for_command(self, p):
+        """for_command : for_limited_all
+                       | for_limited_inc
+                       | for_limited_start"""
+        p[0] = p[1]
+
+    def p_for_limited_all(self, p):
+        """for_limited_all : FOR SPACE variable EQUALS expression COLON expression COLON expression COMMA argument_list
+                           | FOR SPACE variable EQUALS expression COLON expression COLON expression"""
+        args = {
+            'var': p[3],
+            'start': p[5],
+            'inc': p[7],
+            'end': p[9],
+        }
+
+        if len(p) == 12:
+            args['others'] = p[11]
+
+        p[0] = mumpy.MUMPSCommand(lang.for_start, args, self.env)
+
+    def p_for_limited_inc(self, p):
+        """for_limited_inc : FOR SPACE variable EQUALS expression COLON expression COMMA argument_list
+                           | FOR SPACE variable EQUALS expression COLON expression"""
+        args = {
+            'var': p[3],
+            'start': p[5],
+            'inc': p[7],
+        }
+
+        if len(p) == 10:
+            args['others'] = p[9]
+
+        p[0] = mumpy.MUMPSCommand(lang.for_start, args, self.env)
+
+    def p_for_limited_start(self, p):
+        """for_limited_start : FOR SPACE variable EQUALS expression COMMA argument_list
+                             | FOR SPACE variable EQUALS expression"""
+        args = {
+            'var': p[3],
+            'start': p[5],
+        }
+
+        if len(p) == 8:
+            args['others'] = p[7]
+
+        p[0] = mumpy.MUMPSCommand(lang.for_start, args, self.env)
 
     def p_for_unlimited(self, p):
         """for_unlimited : FOR no_argument"""
-        pass
+        p[0] = mumpy.MUMPSCommand(lang.for_start, None, self.env)
 
     def p_goto_command(self, p):
         """goto_command : GOTO SPACE goto_call_list
@@ -461,15 +505,17 @@ class MUMPSParser:
 
     def p_quit(self, p):
         """quit_command : QUIT
+                        | QUIT no_argument
                         | QUIT SPACE expression"""
         # Handle the post-conditional if it exists
         args = mumpy.MUMPSArgumentList(p[3]) if len(p) == 4 else None
         p[0] = mumpy.MUMPSCommand(lang.quit_cmd, args, self.env)
 
     def p_quit_post(self, p):
-        """quit_post_command : QUIT COLON expression
+        """quit_post_command : QUIT COLON expression no_argument
+                             | QUIT COLON expression
                              | QUIT COLON expression SPACE expression"""
-        args = mumpy.MUMPSArgumentList(p[5]) if len(p) > 4 else None
+        args = mumpy.MUMPSArgumentList(p[5]) if len(p) > 5 else None
         p[0] = mumpy.MUMPSCommand(lang.quit_cmd, args, self.env, post=p[3])
 
     def p_halt(self, p):

@@ -5,12 +5,12 @@ the M language and a routine interpreter, allowing routines to be executed
 directly from the command shell.
 
 For now, MUMPy is very much an pre-alpha quality product. Many core features
-of the M language are not yet implemented. Things such as `FOR` loops and
-argumentless `DO` commands to extend conditional line scope are not yet
-functional. Users interested in an actual functional M interpreter
-should investigate FIS GT.M,  which is an open source M interpreter that
-fully conforms to the ANSI M standard and will probably be a lot faster
-to boot (after all, it's written in C). 
+of the M language are not yet implemented. Things such as argumentless `DO` 
+commands to extend conditional line scope are not yet functional. Users 
+interested in an actual functional M interpreter should investigate 
+FIS GT.M,  which is an open source M interpreter that fully conforms to 
+the ANSI M standard and will probably be a lot faster to boot (after all, 
+it's written in C). 
 
 MUMPy is mostly just a fun
 learning project for me, though I would eventually like for it to be
@@ -85,6 +85,23 @@ syntactic sugar for performing the command twice in a row:
     Hello, world!
     mumpy > write "Hello, " write "world!"
     Hello, world!
+    
+All non-conditional commands (conditional commands are `IF`, `ELSE`, and
+`FOR`) permit the caller to affix a post-conditional. This is an expression
+which evaluates to a truth value (see Expressions below). If the expression
+evaluates True, then the command proceeds with any arguments. If the
+expression evaluates as False, then the command will not be executed by
+the interpreter. While the post-conditional is a very powerful tool,
+callers should be careful to recognize that the scope of the conditional
+for the command _is just the command_. Line-scoped conditionals are
+performed with the `IF` or `ELSE` commands.
+
+    mumpy > write:(0) "This will not output."
+    mumpy > write:(0) "Nor will this." write:(1) "But this will!"
+    But this will!
+    mumpy > write:(0) "All arguments ","are affected!"
+    mumpy > write:(10*4) "This expression evaluates to true!"
+    This expression evaluates to true!
 
 ### Data Types
 Strictly speaking, the only data type in MUMPS is the string. MUMPS does 
@@ -292,8 +309,13 @@ Any tag in the routine may also have a list of argument names immediately
 following which are enclosed in parentheses and separated by commas 
 (without any spaces). Tags are also permitted to have no arguments; in 
 this format, they may either choose to have parentheses or not. Callers
-must use the proper format when calling into that tag (either as an
-extrinsic function or as a subroutine).
+must match their call format to the format of the tag in the routine. Thus,
+a tag without parentheses may not be called with parentheses and a tag
+with parentheses must be called with parentheses. Note that in M, all
+arguments are technically optional. The interpreter performs an implicit
+`NEW` on any arguments which are not explicitly passed in by the caller.
+Thus, it is incumbent on the code within tags to accommodate null inputs
+if they are expecting non-null inputs.
 
 Programmers are not required to follow any strict organizational requirements
 with their tags. One tag may freely flow into another or execution may

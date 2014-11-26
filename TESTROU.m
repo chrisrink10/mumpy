@@ -33,6 +33,7 @@ TESTROU ;
  s fails=fails+$$TestAssumedVars()
  s fails=fails+$$TestGoto()
  s fails=fails+$$TestGotoLoop()
+ s fails=fails+$$TestForLoops()
  ;
  ; Report the results
  w !,"---------------------------------------------------------"
@@ -571,6 +572,58 @@ tglStart ;
  g:(val<100) tglStart
  ;
  s:(val'=100) fail=fail+1
+ d ReportResults(fail)
+ q +fail
+ ;
+ ;**************************
+ ;* FOR Looping Test
+ ;**************************
+TestForLoops() ;
+ n val,fail,ln
+ w !,"Testing FOR loops..."
+ ;
+ ; For loop with only a list of values
+ s val=""
+ f ln="Once ","upon ","a ","time!" s val=val_ln
+ s msg=" - Concatenating a string with values"
+ d EvalTest(val,"Once upon a time!",.fail,msg)
+ ;
+ ; For loop with an increment
+ s val=0
+ f ln=1:1 q:(ln>10)  s val=val+ln
+ s msg=" - Adding values together with increment"
+ d EvalTest(val,55,.fail,msg)
+ ;
+ ; For loop with a decrement
+ s val=55
+ f ln=10:-1 q:(ln<1)  s val=val-ln
+ s msg=" - Subtracting from value with decrement"
+ d EvalTest(val,0,.fail,msg)
+ ;
+ ; Fully bounded for loop
+ s val=0
+ f ln=1:1:10 s val=val+ln
+ s msg=" - Adding up a value in a fully-bounded loop"
+ d EvalTest(val,55,.fail,msg)
+ ;
+ ; Fully bounded for loop with decrement
+ s val=0
+ f ln=10:-1:1 s val=val+ln
+ s msg=" - Adding up a value in a fully-bounded loop with decrement"
+ d EvalTest(val,55,.fail,msg)
+ ;
+ ; Fully bounded for loop with extras
+ s val=0
+ f ln=1:1:10,15,"horse",20 s val=val+ln
+ s msg=" - Adding up a value in a fully-bounded loop with extras"
+ d EvalTest(val,90,.fail,msg)
+ ;
+ ; Argumentless for loop
+ s val=0
+ f  q:(val'<10)  s val=val+1
+ s msg=" - Adding up a value in an argumentless for"
+ d EvalTest(val,10,.fail,msg)
+ ;
  d ReportResults(fail)
  q +fail
  q
