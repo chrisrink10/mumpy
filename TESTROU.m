@@ -579,7 +579,7 @@ tglStart ;
  ;* FOR Looping Test
  ;**************************
 TestForLoops() ;
- n val,fail,ln
+ n val,var,nxt,fail,ln
  w !,"Testing FOR loops..."
  ;
  ; For loop with only a list of values
@@ -623,6 +623,14 @@ TestForLoops() ;
  f  q:(val'<10)  s val=val+1
  s msg=" - Adding up a value in an argumentless for"
  d EvalTest(val,10,.fail,msg)
+ ;
+ ; Argumentless for loop with $ORDER
+ s msg=" - Adding up a value in an argumentless for with $ORDER"
+ s nxt=""
+ s val=0
+ f ln=1:1:10 s var(ln)=ln
+ f  s nxt=$O(var(nxt)) q:(nxt="")  s val=val+var(nxt)
+ d EvalTest(val,55,.fail,msg)
  ;
  d ReportResults(fail)
  q +fail

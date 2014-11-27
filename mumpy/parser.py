@@ -1023,7 +1023,7 @@ class MUMPSParser:
     def p_ascii(self, p):
         """ascii_func : ASCII LPAREN expression COMMA expression RPAREN
                       | ASCII LPAREN expression RPAREN"""
-        which = int(p[5].as_number()) if len(p) == 7 else 1
+        which = p[5] if len(p) == 7 else None
         p[0] = lang.intrinsic_ascii(p[3], which=which)
 
     def p_char(self, p):
@@ -1039,20 +1039,20 @@ class MUMPSParser:
                         | EXTRACT LPAREN expression COMMA expression RPAREN
                         | EXTRACT LPAREN expression RPAREN"""
         l = len(p)
-        low = int(p[5].as_number()) if l >= 7 else 1
-        high = int(p[7].as_number()) if l == 9 else None
+        low = p[5] if l >= 7 else None
+        high = p[7] if l == 9 else None
         p[0] = lang.intrinsic_extract(p[3], low=low, high=high)
 
     def p_find(self, p):
         """find_func : FIND LPAREN expression COMMA expression COMMA expression RPAREN
                      | FIND LPAREN expression COMMA expression RPAREN"""
-        start = int(p[7].as_number()) if len(p) == 9 else None
+        start = p[7] if len(p) == 9 else None
         p[0] = lang.intrinsic_find(p[3], p[5], start=start)
 
     def p_justify(self, p):
         """justify_func : justify_token LPAREN expression COMMA expression COMMA expression RPAREN
                         | justify_token LPAREN expression COMMA expression RPAREN"""
-        ndec = int(p[7].as_number()) if len(p) == 9 else None
+        ndec = p[7] if len(p) == 9 else None
         p[0] = lang.intrinsic_justify(p[3], int(p[5].as_number()), ndec)
 
     def p_length(self, p):
@@ -1063,27 +1063,31 @@ class MUMPSParser:
 
     def p_name(self, p):
         """name_func : NAME LPAREN identifier RPAREN"""
-        p[0] = mumpy.MUMPSExpression(str(p[3]))
+        p[0] = mumpy.MUMPSExpression(
+            lambda v=p[3]: str(v)
+        )
 
     def p_order(self, p):
         """order_func : ORDER LPAREN variable COMMA expression RPAREN
                       | ORDER LPAREN variable RPAREN"""
-        rev = p[5].as_number() if len(p) == 7 else 1
+        rev = p[5] if len(p) == 7 else None
         p[0] = lang.intrinsic_order(p[3], self.env, rev=rev)
 
     def p_piece(self, p):
         """piece_func : piece_token LPAREN expression COMMA expression COMMA expression RPAREN
                       | piece_token LPAREN expression COMMA expression RPAREN"""
-        pnum = int(p[7].as_number()) if len(p) == 9 else 1
+        pnum = p[7] if len(p) == 9 else None
         p[0] = lang.intrinsic_piece(p[3], p[5], num=pnum)
 
     def p_random(self, p):
         """random_func : RANDOM LPAREN expression RPAREN"""
-        p[0] = lang.intrinsic_random(p[3].as_number())
+        p[0] = lang.intrinsic_random(p[3])
 
     def p_reverse(self, p):
         """reverse_func : REVERSE LPAREN expression RPAREN"""
-        p[0] = mumpy.MUMPSExpression(str(p[3])[::-1])
+        p[0] = mumpy.MUMPSExpression(
+            lambda v=p[3]: str(v)[::-1]
+        )
 
     def p_select(self, p):
         """select_func : SELECT LPAREN sel_argument_list RPAREN"""

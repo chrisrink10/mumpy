@@ -346,17 +346,29 @@ class MUMPSForLine(Exception):
 # difficult or otherwise impossible to complete using the standard
 # MUMPS commands.
 ###################
-def intrinsic_ascii(expr, which=1):
+def intrinsic_ascii(expr, which=None):
     """Return the UTF-8 ordinal value for the character number in expr given
     by the input parameter `which` or -1 if `which` is larger than the
     length of the expression."""
+    return MUMPSExpression(
+        lambda e=expr, w=which: _ascii(e, w)
+    )
+
+
+def _ascii(expr, which=None):
+    """Private ASCII function to allow repeated processing (in a loop)."""
+    try:
+        which = int(which.as_number())
+    except AttributeError:
+        which = 1
+
     try:
         if which-1 >= 0:
-            char = MUMPSExpression(ord(str(expr)[which-1]))
+            char = ord(str(expr)[which-1])
         else:
             raise IndexError
     except IndexError:
-        char = MUMPSExpression(-1)
+        char = -1
 
     return char
 
@@ -364,32 +376,64 @@ def intrinsic_ascii(expr, which=1):
 def intrinsic_char(args):
     """Return the UTF-8 character value for the ordinal number or numbers
     given in the argument list."""
+    return MUMPSExpression(
+        lambda a=args: _char(a)
+    )
+
+
+def _char(args):
+    """Private data function to allow repeated processing (in a loop)."""
     chars = []
     for arg in args:
         chars.append(chr(int(arg.as_number())))
-    return MUMPSExpression(''.join(chars))
+    return ''.join(chars)
 
 
-def intrinsic_data(var, env):
+def intrinsic_data(ident, env):
     """Return a numeric value corresponding to the type of data in the
     given variable. If the variable is not defined, return 0. If the variable
     is defined and has no children nodes, return 1. If the variable base node
     has no value, but the variable with that name has a value, return 10. If
     the variable base node has a value and has children, return 11."""
+    return MUMPSExpression(
+        lambda i=ident, e=env: _data(i, e)
+    )
+
+
+def _data(ident, env):
+    """Private data function to allow repeated processing (in a loop)."""
     # Check if the value is defined anywhere in the environment
-    if not var in env:
-        return MUMPSExpression(0)
+    if not ident in env:
+        return 0
 
     # If so, get it and query it for it's data
-    v = env.get(var, get_var=True)
-    return v.data(var)
+    var = env.get(ident, get_var=True)
+    return var.data(ident)
 
 
-def intrinsic_extract(expr, low=1, high=None):
+def intrinsic_extract(expr, low=None, high=None):
     """Extract the first character from `expr` if neither `low` and `high`
     are given. If just `low` is given, then return the character at that
     index. If both `low` and `high` are given, return the substring from
     `low` to `high` index."""
+    return MUMPSExpression(
+        lambda e=expr, l=low, h=high: _extract(e, l, h)
+    )
+
+
+def _extract(expr, low=None, high=None):
+    """Private extract function to allow repeated processing (in a loop)."""
+    # Convert the low and high bounds to integers
+    try:
+        low = int(low.as_number())
+    except AttributeError:
+        low = 1
+
+    try:
+        high = int(high.as_number())
+    except AttributeError:
+        high = None
+
     try:
         s = str(expr)
         slen = len(s)
@@ -425,10 +469,21 @@ def intrinsic_extract(expr, low=1, high=None):
 def intrinsic_find(expr, search, start=None):
     """Find the first instance of the substring `search` in `expr` after
     the`start`th character or from the beginning if `start` is None."""
+    return MUMPSExpression(
+        lambda e=expr, s=search, st=start: _find(e, s, st)
+    )
+
+
+def _find(expr, search, start=None):
+    """Private find function to allow repeated processing (in a loop)."""
+    try:
+        start = int(start.as_number())
+    except AttributeError:
+        start = None
+
     try:
         sub = str(search)
-        idx = mumpy.MUMPSExpression(
-            str(expr).index(sub, start) + len(sub) + 1)
+        idx = str(expr).index(sub, start) + len(sub) + 1
     except ValueError:
         idx = mumpy.MUMPSExpression(0)
 
@@ -440,59 +495,108 @@ def intrinsic_justify(expr, rspace, ndec=None):
     `rspace`. If the optional `ndec` argument is given, then `expr` will
     be treated as numeric and rounded to `ndec` decimal places or zero
     padded if there are not at least `ndec` decimal places."""
+    return MUMPSExpression(
+        lambda e=expr, rs=rspace, nd=ndec: _justify(e, rs, nd)
+    )
+
+
+def _justify(expr, rspace, ndec=None):
+    """Private justify function to allow repeated processing (in a loop)."""
+    try:
+        ndec = int(ndec.as_number())
+    except AttributeError:
+        ndec = None
+
     if ndec is not None:
         expr = round(expr.as_number(), ndec)
         s = str(expr).split(".")
         dig, dec = len(s[0]), len(s[1]) if len(s) > 1 else 0
         expr = expr if dec >= ndec else str(expr).ljust(ndec + dig + 1, '0')
 
-    return MUMPSExpression(str(expr).rjust(rspace))
+    return str(expr).rjust(rspace)
 
 
 def intrinsic_length(expr, char=None):
     """Compute the length of the input `expr` as a string or, if `char` is
     not None, count the number of occurrences of `char` in `expr`."""
     if char is not None:
-        return MUMPSExpression(str(expr).count(str(char)))
-    return MUMPSExpression(len(str(expr)))
+        return MUMPSExpression(
+            lambda e=expr, c=char: str(e).count(str(c))
+        )
+    return MUMPSExpression(
+        lambda e=expr: len(str(e))
+    )
 
 
-def intrinsic_order(var, env, rev=0):
+def intrinsic_order(ident, env, rev=None):
     """Return the next subscript in the subscript level given by the input
     variable. If no more subscripts are defined, return null."""
-    v = env.get(var, get_var=True)
-    return v.order(var, rev=rev)
-
-
-def intrinsic_piece(expr, char, num=1):
-    """Give the `num`th piece of `expr` split about `char` (1 indexed)."""
     try:
-        piece = str(expr).split(sep=str(char), maxsplit=num)[num-1]
-    except (IndexError, ValueError):
-        piece = mumpy.mumps_null()
+        rev = rev.as_number()
+    except AttributeError:
+        rev = 1
 
-    return MUMPSExpression(piece)
+    var = env.get(ident, get_var=True)
+    return MUMPSExpression(
+        lambda v=var, i=ident, r=rev: v.order(ident, rev=r)
+    )
+
+
+def intrinsic_piece(expr, char, num=None):
+    """Give the `num`th piece of `expr` split about `char` (1 indexed)."""
+    return MUMPSExpression(
+        lambda e=expr, c=char, n=num: _piece(e, c, n)
+    )
+
+
+def _piece(expr, char, num=None):
+    """Private piece function to allow repeated processing (in a loop)."""
+    try:
+        num = int(num.as_number())
+    except AttributeError:
+        num = 1
+
+    try:
+        return str(expr).split(sep=str(char), maxsplit=num)[num-1]
+    except (IndexError, ValueError):
+        return mumpy.mumps_null()
 
 
 def intrinsic_random(num):
     """Given `num`, return a random integer in the range [0, num). Raise
     a syntax error if num is less than 1."""
+    return MUMPSExpression(
+        lambda n=num: _random(n)
+    )
+
+
+def _random(num):
+    """Private random function to allow repeated processing (in a loop)."""
+    num = int(num.as_number())
+
     if num < 1:
         raise mumpy.MUMPSSyntaxError("RANDOM argument less than 1.",
-                                     err_type="$R ARG INVALID")
+                                     err_type="RANDARGNEG")
 
-    return MUMPSExpression(random.randint(0, num))
+    return random.randint(0, num)
 
 
 def intrinsic_select(args):
     """Given a list of `args` (a list of expression tuples), return the
     expression in index 1 for the first expression in index 0 which
     evaluates to True."""
+    return MUMPSExpression(
+        lambda a=args: _select(a)
+    )
+
+
+def _select(args):
+    """Private select function to allow repeated processing (in a loop)."""
     for arg in args:
         if arg[0]:
             return arg[1]
     raise mumpy.MUMPSSyntaxError("No select arguments evaluated true.",
-                                 err_type="NO $S ARGS TRUE")
+                                 err_type="SELECTFALSE")
 
 
 def intrinsic_translate(expr, trexpr, newexpr=None):
@@ -500,6 +604,13 @@ def intrinsic_translate(expr, trexpr, newexpr=None):
     or translate each character in `trexpr` to the identical index character
     from `newexpr`. If `newexpr` is shorter than `trexpr`, then remove the
     characters from `trexpr` which do not have siblings in `newexpr`."""
+    return MUMPSExpression(
+        lambda e=expr, tr=trexpr, nw=newexpr: _translate(e, tr, nw)
+    )
+
+
+def _translate(expr, trexpr, newexpr=None):
+    """Private translate function to allow repeated processing (in a loop)."""
     # We use the string and translation map for both paths
     expr = str(expr)
     trexpr = str(trexpr)
@@ -523,7 +634,7 @@ def intrinsic_translate(expr, trexpr, newexpr=None):
             trmap[ord(c)] = None
 
     # Return the translated string
-    return MUMPSExpression(expr.translate(trmap))
+    return expr.translate(trmap)
 
 
 ###################
@@ -534,6 +645,14 @@ def intrinsic_translate(expr, trexpr, newexpr=None):
 ###################
 def horolog():
     """Return the MUMPS $H time and date variable."""
+    # Produce the string
+    return MUMPSExpression(
+        lambda: _horolog()
+    )
+
+
+def _horolog():
+    """Private horolog function."""
     # Get today and now
     today = datetime.datetime.today()
     now = datetime.datetime.now()
@@ -546,10 +665,10 @@ def horolog():
     tdelta = now - midnight
 
     # Produce the string
-    return MUMPSExpression("{d},{t}".format(
+    return "{d},{t}".format(
         d=daydelta.days,
         t=tdelta.seconds,
-    ))
+    )
 
 
 def current_job():

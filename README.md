@@ -374,7 +374,8 @@ MUMPy:
 
 * [Annotated MUMPS Standards](http://71.174.62.16/Demo/AnnoStd) - the closest
   thing to the ANSI/ISO M standards that is available online.
-* [GT.M Programmers Guide](http://tinco.pair.com/bhaskar/gtm/doc/books/pg/UNIX_manual/index.html) -
+* [GT.M Programmers Guide]
+  (http://tinco.pair.com/bhaskar/gtm/doc/books/pg/UNIX_manual/index.html) -
   GT.M is a (mostly) ANSI M compliant, open source MUMPS distribution. Its 
   documentation is superior to the Annotated Standard, but it does differ
   from the Standard in a few ways.
@@ -383,6 +384,9 @@ MUMPy:
 * [blist Documentation](http://stutzbachenterprises.com/blist/) - _blist_ 
   is the Python library MUMPy use for local variables (specifically nested 
   `sorteddict` instances).
+* [Thunks, Trampolines, and Continuation Passing]
+  (http://jtauber.com/blog/2008/03/30/thunks,_trampolines_and_continuation_passing/) -
+  is a great resource on usage of all three title elements in Python.
 
 ## License
 MUMPy is licensed under the 3-clause BSD license. See the LICENSE file 
