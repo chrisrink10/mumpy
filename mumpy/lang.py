@@ -13,6 +13,8 @@ import datetime
 import random
 import string
 import os
+import subprocess
+import sys
 import time
 import traceback
 import blist
@@ -208,6 +210,40 @@ def kill_all(args, env):
     env.kill_all()
 
 
+def job_cmd(args, env):
+    """Spawn a new job at the given tag^routine with the given arguments."""
+    for arg in args:
+        # Unpack the argument
+        sub, params, timeout = arg
+        timeout = None if timeout is None else timeout.as_number()
+
+        # Prepare the new process parameters
+        cmd = [
+            sys.argv[0],
+            "-f", sub.rou.name(),
+            "-t", str(sub.tag),
+            "-r",
+        ]
+
+        # Add arguments if they are given
+        if sub.args is not None:
+            cmd.append("-a")
+            cmd.append(" ".join(tuple(str(i) for i in sub.args)))
+
+        # Handle any special parameters
+        if params is not None:
+            # Set the default device for this job
+            if "device" in params:
+                cmd.append("-dev")
+                cmd.append(str(params["device"]))
+
+        # Initiate the new process
+        try:
+            subprocess.call(cmd, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            env.set("$T", mumps_false())
+
+
 def quit_cmd(args, env):
     """Quit from the current scope."""
     # Quits from a DO block should have no argument
@@ -291,6 +327,12 @@ def write(args, env):
 def write_symbols(args, env):
     """Write out all of the symbols in the environment."""
     env.print()
+
+
+def view_cmd(args, env):
+    """Set an environmental factor."""
+    #TODO: this
+    pass
 
 
 ###################

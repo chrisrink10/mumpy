@@ -110,6 +110,61 @@ class MUMPSEnvironment:
         and subroutines (i.e. $$Func() rather than $$Func^ROU())."""
         self._call_stack.append((tag, rou))
 
+    def init_stack_frame(self, rou, tag=None, in_args=None):
+        """Set the current routine, tag, and any relevant arguments on the
+        current stack frame.
+
+        This function can be used to initiate the base level stack frame
+        when a tag is initiated with arguments from the command line or when
+        a tag^routine is executed from a JOB command from another MUMPy
+        process."""
+        # Verify that we got a valid routine
+        if not isinstance(rou, mumpy.MUMPSFile):
+            raise TypeError("Expecting Routine, got {}".format(type(rou)))
+
+        # Set the current routine and tag
+        self.set_current_rou(rou, tag)
+
+        # Get the tag and any arguments
+        tag = rou.name() if tag is None else tag
+        try:
+            args = rou.tag_args(tag)
+        except KeyError:
+            raise mumpy.MUMPSSyntaxError("Tag '{}' not found"
+                                         "in routine.".format(tag),
+                                         err_type="NOLINE")
+
+        # Check for syntax errors in the argument call
+        _check_args(args, in_args)
+
+        # No need to continue if there are no arguments
+        if args is None:
+            return
+
+        # Push the argument list on the stack
+        for i, arg in enumerate(args):
+            # Convert the tag argument name to an identifier
+            # This is the new name of the symbol on the current stack frame
+            ident = mumpy.MUMPSIdentifier(arg, self)
+
+            # Try to get the matching value from the input list
+            # If we can't find it, that's fine; MUMPS functions do not
+            # require any or all parameters to be input - just set it null.
+            #
+            # Check for TypeError in case the input argument list is None.
+            try:
+                # Create the pointer if necessary
+                v = in_args[i]
+                in_arg = str(mumpy.MUMPSExpression(v))
+            except (IndexError, TypeError):
+                in_arg = mumpy.mumps_null()
+
+            # New the argument list name
+            self.new(ident)
+
+            # Set the new value
+            self._set(ident, in_arg)
+
     def push_func_to_stack(self, func):
         """Given a MUMPS Function or Subroutine call, push the necessary
         variables onto the next stack level at the correct name from the
@@ -132,23 +187,8 @@ class MUMPSEnvironment:
         # Get the argument list and push existing values onto the new frame
         args = func.rou.tag_args(func.tag)
 
-        # Check for syntax errors:
-        # If args is None and the function call provided arguments, or
-        # If args is not None and the call did not provide arguments, or
-        # If args is a shorter list than the input argument list
-        if args is None and func.args is not None:
-            raise mumpy.MUMPSSyntaxError("Function or subroutine does not "
-                                         "have argument list.",
-                                         err_type="NO ARGUMENTS")
-        elif args is not None and func.args is None:
-            raise mumpy.MUMPSSyntaxError("Function or subroutine has "
-                                         "arguments, but none provided.",
-                                         err_type="TOO MANY ARGUMENTS")
-        elif ((args is not None and func.args is not None) and
-                (len(args) < len(func.args))):
-            raise mumpy.MUMPSSyntaxError("Function or subroutine has fewer "
-                                         "arguments than provided.",
-                                         err_type="TOO MANY ARGUMENTS")
+        # Check for syntax errors in argument list
+        _check_args(args, func.args)
 
         # Return if no arguments for this function
         if args is None:
@@ -498,3 +538,26 @@ class MUMPSEnvironment:
                 tag=frame[0],
                 rou=frame[1].name(),
             ))
+
+
+def _check_args(tag_args, in_args):
+    """Check the input argument list against the tag argument list. Throw
+    syntax errors if users call a tag incorrectly.
+
+    The syntax errors are as follows:
+    - If args is None and the function call provided arguments, or
+    - If args is not None and the call did not provide arguments, or
+    - If args is a shorter list than the input argument list"""
+    if tag_args is None and in_args is not None:
+        raise mumpy.MUMPSSyntaxError("Function or subroutine does not "
+                                     "have argument list.",
+                                     err_type="TAGNOARGS")
+    elif tag_args is not None and in_args is None:
+        raise mumpy.MUMPSSyntaxError("Function or subroutine has "
+                                     "arguments, but none provided.",
+                                     err_type="TAGNEEDSARGS")
+    elif ((tag_args is not None and in_args is not None) and
+            (len(tag_args) < len(in_args))):
+        raise mumpy.MUMPSSyntaxError("Function or subroutine has fewer "
+                                     "arguments than provided.",
+                                     err_type="TAGFEWERARGS")

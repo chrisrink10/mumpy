@@ -29,6 +29,21 @@ def main():
                         required=False,
                         nargs=1
                         )
+    parser.add_argument("-t", "--tag",
+                        help="The tag to execute in the specified routine",
+                        required=False,
+                        nargs=1
+                        )
+    parser.add_argument("-a", "--args",
+                        help="The arguments to pass to the specified tag",
+                        required=False,
+                        nargs="*"
+                        )
+    parser.add_argument("-dev", "--device",
+                        help="The I/O device this process should start with",
+                        required=False,
+                        nargs=1
+                        )
     parser.add_argument("-r", "--recompile",
                         help="Recompile any routines before interpreting.",
                         required=False,
@@ -38,11 +53,17 @@ def main():
 
     # Process routine compilations first
     if args.compile:
-        mumpy.compile_routine(args.compile, args.debug)
+        mumpy.compile_routine(args.compile,
+                              args.debug)
 
     # Then interpret any files
     if args.file:
-        mumpy.interpret(args.file[0], args.recompile, args.debug)
+        mumpy.interpret(args.file[0],
+                        tag=None if args.tag is None else args.tag[0],
+                        device=None if args.device is None else args.device[0],
+                        args=args.args,
+                        recompile=args.recompile,
+                        debug=args.debug)
 
     # If the user wants to neither compile any routines or interpret any files,
     # start the REPL

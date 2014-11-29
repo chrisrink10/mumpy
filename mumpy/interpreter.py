@@ -55,7 +55,8 @@ def compile_routine(files, debug=False):
             print("Failed to compile {rou}!".format(rou=file))
 
 
-def interpret(file, recompile=False, debug=False):
+def interpret(file, tag=None, args=None, device=None,
+              recompile=False, debug=False):
     """Interpret a routine file.."""
     # Prepare the file
     try:
@@ -72,5 +73,13 @@ def interpret(file, recompile=False, debug=False):
     env = mumpy.MUMPSEnvironment()
     p = mumpy.MUMPSParser(env, debug=debug)
 
+    # If the user specifies another default device, use that
+    if device is not None:
+        env.open(device)
+        env.use(device)
+
     # Parse the file
-    p.parse_file(f)
+    try:
+        p.parse_file(f, tag=tag, args=args)
+    except mumpy.MUMPSSyntaxError as e:
+        print(e)

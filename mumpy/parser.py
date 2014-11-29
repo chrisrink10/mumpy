@@ -93,7 +93,7 @@ class MUMPSParser:
         except KeyError:
             print("The REPL was not set up correctly. Quitting...")
 
-    def parse_file(self, f, tag=None):
+    def parse_file(self, f, tag=None, args=None):
         """Parse a MUMPSFile from the first tag or at a specified tag.
 
         This function is called from the interpreter if the user specifies
@@ -103,10 +103,12 @@ class MUMPSParser:
             raise TypeError("Please specify a valid MUMPS routine.")
 
         # Set the executing routine in the environment
-        self.env.set_current_rou(f, tag=tag)
+        args = None if args is None else tuple(args)
+        tag = tag if tag is not None else f.rou
+        self.env.init_stack_frame(f, tag=tag, in_args=args)
 
         # If no tag is specified, start at the beginning
-        lines = f.tag_body(tag if tag is not None else f.rou)
+        lines = f.tag_body(tag)
         for line in lines:
             self.output = False
 
@@ -274,7 +276,9 @@ class MUMPSParser:
                    | close_command
                    | use_command
                    | goto_command
-                   | for_command"""
+                   | for_command
+                   | view_command
+                   | job_command"""
         p[0] = p[1]
 
     def p_command_no_arg(self, p):
@@ -380,6 +384,18 @@ class MUMPSParser:
             args = p[3]
 
         p[0] = mumpy.MUMPSCommand(lang.goto_cmd, args, self.env, post=post)
+
+    def p_job_command(self, p):
+        """job_command : JOB SPACE job_argument_list
+                       | JOB COLON expression SPACE job_argument_list"""
+        if len(p) > 4:
+            post = p[3]
+            args = p[5]
+        else:
+            post = None
+            args = p[3]
+
+        p[0] = mumpy.MUMPSCommand(lang.job_cmd, args, self.env, post=post)
 
     def p_kill_command(self, p):
         """kill_command : KILL SPACE variable_list
@@ -489,6 +505,20 @@ class MUMPSParser:
         self.output = True
         p[0] = mumpy.MUMPSCommand(lang.write_symbols, None, self.env)
 
+    def p_view_command(self, p):
+        """view_command : VIEW SPACE view_argument_list
+                        | VIEW COLON expression SPACE view_argument_list"""
+        # Evaluate the post-conditional if it exists
+        if len(p) > 4:
+            post = p[3]
+            args = p[5]
+        else:
+            post = None
+            args = p[3]
+
+        # Execute the code in each expression
+        p[0] = mumpy.MUMPSCommand(lang.view_cmd, args, self.env, post=post)
+
     def p_xecute_command(self, p):
         """xecute_command : XECUTE SPACE argument_list
                           | XECUTE COLON expression SPACE argument_list"""
@@ -577,6 +607,35 @@ class MUMPSParser:
     def p_goto_routine(self, p):
         """goto_routine : routine_global"""
         p[0] = mumpy.MUMPSFuncSubCall(p[1], self.env, self, rou=p[1])
+
+    def p_job_argument_list(self, p):
+        """job_argument_list : job_argument_list COMMA job_argument
+                             | job_argument"""
+        if len(p) == 4:
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_job_argument(self, p):
+        """job_argument : job_sub_call COLON LPAREN command_keyword_list RPAREN COLON expression
+                        | job_sub_call COLON COLON expression
+                        | job_sub_call COLON LPAREN command_keyword_list RPAREN
+                        | job_sub_call"""
+        l = len(p)
+        if l == 8:
+            p[0] = (p[1], _cmd_params_to_dict(p[4]), p[7])
+        elif l == 5:
+            p[0] = (p[1], None, p[4])
+        elif l == 6:
+            p[0] = (p[1], _cmd_params_to_dict(p[4]), None)
+        else:
+            p[0] = (p[1], None, None)
+
+    def p_job_sub_call(self, p):
+        """job_sub_call : subroutine_call_tag
+                        | subroutine_call_no_tag
+                        | subroutine_call_no_rou"""
+        p[0] = p[1]
 
     def p_subroutine_call_list(self, p):
         """subroutine_call_list : subroutine_call_list COMMA subroutine_call
@@ -741,6 +800,22 @@ class MUMPSParser:
         """sel_argument : expression COLON expression"""
         p[0] = (p[1], p[3])
 
+    def p_view_argument_list(self, p):
+        """view_argument_list : view_argument_list COMMA view_argument
+                              | view_argument"""
+        if len(p) == 4:
+            p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
+        else:
+            p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_view_argument(self, p):
+        """view_argument : view_argument COLON expression
+                         | expression"""
+        if len(p) == 4:
+            p[0] = p[1] + p[3]
+        else:
+            p[0] = (p[1],)
+
     def p_assignment(self, p):
         """assignment : variable EQUALS expression"""
         p[0] = (p[1], p[3])
@@ -752,6 +827,18 @@ class MUMPSParser:
             p[0] = mumpy.MUMPSArgumentList(p[3], p[1])
         else:
             p[0] = mumpy.MUMPSArgumentList(p[1])
+
+    def p_command_keyword_list(self, p):
+        """command_keyword_list : command_keyword_list COMMA keyword_value
+                                | keyword_value"""
+        if len(p) == 4:
+            p[0] = p[1].append(p[3])
+        else:
+            p[0] = [p[1]]
+
+    def p_keyword_value(self, p):
+        """keyword_value : string_contents EQUALS expression"""
+        p[0] = (p[1], p[3])
 
     def p_no_arguments(self, p):
         """no_argument : SPACE SPACE"""
@@ -771,24 +858,12 @@ class MUMPSParser:
 
     def p_device(self, p):
         """device : expression
-                  | expression COLON LPAREN device_parameter_list RPAREN"""
+                  | expression COLON LPAREN command_keyword_list RPAREN"""
         l = len(p)
         if l == 6:
-            p[0] = (p[1], _device_params_to_dict(p[4]))
+            p[0] = (p[1], _cmd_params_to_dict(p[4]))
         else:
             p[0] = (p[1], None)
-
-    def p_device_parameter_list(self, p):
-        """device_parameter_list : device_parameter_list COMMA device_parameter
-                                 | device_parameter"""
-        if len(p) == 4:
-            p[0] = p[1].append(p[3])
-        else:
-            p[0] = [p[1]]
-
-    def p_device_parameter(self, p):
-        """device_parameter : expression COLON expression"""
-        p[0] = (p[1], p[3])
 
     def p_read_argument_list(self, p):
         """read_argument_list : read_argument_list COMMA read_argument
@@ -1273,7 +1348,7 @@ class MUMPSParser:
                                          err_type="COMPLEX RESULT")
 
 
-def _device_params_to_dict(params):
+def _cmd_params_to_dict(params):
     """Convert a list of device parameters to a dictionary."""
     return {t[0]: t[1] for t in params}
 

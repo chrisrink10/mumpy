@@ -34,6 +34,13 @@ first character cannot be numeric `0-9`. Users can read more about
 routines in the Routines section below.
 
 Other command line options are available by invoking the `--help` parameter. 
+Users can enter a routine at a certain tag and specify input parameters
+now. Use the `-f` parameter to specify a routine. Optionally, users can
+specify a tag to use with `-t` and a list of space-delimited arguments with
+the `-a` parameter. Summoning the `AskQuestion^LEARNM` function given at
+the end of this document can be done with the following command:
+
+    ./mumpy.py -f LEARNM -r -t AskQuestion -a "What time is it?" 10
 
 ## MUMPS Primer
 I will provide a basic MUMPS primer for users who are unfamiliar with 
