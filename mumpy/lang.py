@@ -267,7 +267,7 @@ def open_dev(args, env):
         opts = arg[1]
 
         # Open the device
-        env.open(dev)
+        env.open(dev, opts=opts)
 
 
 def close_dev(args, env):

@@ -487,7 +487,8 @@ class MUMPSParser:
     def p_write_command(self, p):
         """write_command : WRITE SPACE write_argument_list
                          | WRITE COLON expression SPACE write_argument_list"""
-        self.output = True
+        if self.env.current_device() == self.env.default_device():
+            self.output = True
 
         # Evaluate the post-conditional if it exists
         if len(p) > 4:

@@ -7,18 +7,33 @@ devices.
 Licensed under a BSD license. See LICENSE for more information.
 
 Author: Christopher Rink"""
+import io
 import os
 import select
+import socket
 import sys
+import urllib.parse as urlparse
 import mumpy
+
+
+# Valid file modes for a file device. These modes are ignored for sockets.
+_modes = ('r',      # Read-only. File pointer at beginning.
+          'w',      # Write-only. Overwrites file if exists, else creates.
+          'x',      # Exclusive creation.
+          'a',      # Append. Write-only. File pointer at end or creates.
+          'r+',     # Read-write. File pointer at beginning.
+          'w+',     # Read-write. Overwrites file if exists, else creates.
+          'a+',     # Read-write. File pointer at end. Creates if not exists.
+)
+
+# Default $PRINCIPAL file
+_default_device = 'STANDARD'
 
 
 class MUMPSEnvironment:
     """A MUMPy execution stack."""
-    def __init__(self, in_dev=sys.stdin, out_dev=sys.stdout,
-                 err_dev=sys.stderr):
+    def __init__(self, device='STANDARD'):
         # Default I/O device
-        self._default_device = 'STANDARD'
         self._def_x = 0
         self._def_y = 0
 
@@ -27,13 +42,26 @@ class MUMPSEnvironment:
         self._stack = [{}]
         self._init_sys_vars()
 
+        # Create the $PRINCIPAL device
+        _principal = MUMPSDevice('STANDARD')
+        _principal._file = io.TextIOWrapper(
+            io.BufferedRWPair(sys.stdin.buffer,
+                              sys.stdout.buffer),
+            encoding='utf8'
+        )
+
         # Input and output devices in the environment
-        self._in_dev = in_dev
-        self._out_dev = out_dev
-        self._err_dev = err_dev
-        self._cur_dev = self._default_device
-        self._devices = {}
-        self._modes = ('r', 'w', 'x', 'a', 'r+')
+        self._devices = {
+            _default_device: _principal
+        }
+        self._err_dev = sys.stderr
+
+        # Set the current device
+        if device != _default_device:
+            self.open(device)
+            self._cur_dev = self._devices[device]
+        else:
+            self._cur_dev = _principal
 
         # Function and subroutine call stack
         self._call_stack = []
@@ -49,22 +77,17 @@ class MUMPSEnvironment:
         )
 
     def __del__(self):
-        """Release any remaining file resources. Raise a MUMPSSyntaxError
-        for failing to close open devices."""
+        """Release any remaining file resources."""
         # If no devices are open, exit
         if len(self._devices) == 0:
             return
 
         # Close any remaining devices
-        for dev in self._devices:
+        for _, dev in self._devices.items():
             try:
                 dev.close()
             except AttributeError:
                 pass
-
-        # Raise the syntax error
-        raise mumpy.MUMPSSyntaxError("Failed to close an open I/O device.",
-                                     err_type="FAILED TO CLOSE IO")
 
     def _init_sys_vars(self):
         """Initialize some of the system default variables."""
@@ -383,51 +406,32 @@ class MUMPSEnvironment:
     ###################
     def current_device(self):
         """Return the name of the current device."""
-        return mumpy.MUMPSExpression(self._cur_dev)
+        return mumpy.MUMPSExpression(str(self._cur_dev))
 
     def default_device(self):
         """Return the default device for this session."""
-        return mumpy.MUMPSExpression(self._default_device)
+        return mumpy.MUMPSExpression(_default_device)
 
     def device_x(self):
         """Return the device $X value for the currently selected device."""
-        try:
-            return self._devices[self._cur_dev]['x']
-        except KeyError:
-            return self._def_x
+        return self._cur_dev.x
 
     def device_y(self):
         """Return the device $Y value for the currently selected device."""
-        try:
-            return self._devices[self._cur_dev]['y']
-        except KeyError:
-            return self._def_y
+        return self._cur_dev.y
 
-    def open(self, dev, mode='r+'):
+    def open(self, dev, opts=None):
         """Open a file device and add it to the file device list."""
         # Store the device in string form only
         dev = str(dev)
 
         # We don't need to open this device again
-        if dev in self._devices or dev == self._default_device:
+        if dev in self._devices:
             return
 
-        # Check for valid device modes
-        if mode not in self._modes:
-            raise mumpy.MUMPSSyntaxError("Invalid IO mode selected; choose "
-                                         "one of {}.".format(self._modes),
-                                         err_type="INVALID IO MODE")
-
         # Try to open the device
-        try:
-            self._devices[dev] = {
-                'dev': open(dev, mode=mode, encoding="utf8"),
-                'x': 0,
-                'y': 0,
-            }
-        except OSError as e:
-            raise mumpy.MUMPSSyntaxError("Invalid IO operation; operating "
-                                         "system returned '{}'.".format(str(e)))
+        self._devices[dev] = MUMPSDevice(dev, opts)
+        self._devices[dev].open()
 
     def close(self, dev):
         """Close a file device and remove it from use if it is in use."""
@@ -436,91 +440,51 @@ class MUMPSEnvironment:
         # We cannot close a device we are not using
         if dev not in self._devices:
             raise mumpy.MUMPSSyntaxError("Selected IO device not found.",
-                                         err_type="IO DEVICE NOT FOUND")
+                                         err_type="NODEV")
 
         # We cannot close the $PRINCIPAL device
-        if dev == self._default_device:
+        if dev == _default_device:
             raise mumpy.MUMPSSyntaxError("Cannot close $PRINCIPAL.",
-                                         err_type="INVALID DEVICE")
+                                         err_type="BADDEV")
 
         # Close the device
-        self._devices[dev]['dev'].close()
+        self._devices[dev].close()
 
         # Check if the device we just closed was the current device;
         # If so, revert back to the $PRINCIPAL IO device
         if self._cur_dev == dev:
-            self.use(self._default_device)
+            self.use(_default_device)
 
     def use(self, dev):
         """Specify the current device."""
         dev = str(dev)
-        is_principal = (dev == self._default_device)
 
         # Make sure we have this device
-        if dev not in self._devices and not is_principal:
+        if dev not in self._devices:
             raise mumpy.MUMPSSyntaxError("Selected IO device not found.",
-                                         err_type="IO DEVICE NOT FOUND")
+                                         err_type="NODEV")
 
         # Set the device
-        self._cur_dev = dev
-        if is_principal:
-            self._in_dev, self._out_dev = sys.stdin, sys.stdout
-        else:
-            dev = self._devices[dev]['dev']
-            self._in_dev, self._out_dev = dev, dev
+        self._cur_dev = self._devices[dev]
 
     def input(self, size=None, timeout=None, prompt=None):
         """Input from the current input device."""
         # Provide a prompt for the read
         if isinstance(prompt, str):
-            self._out_dev.write(prompt)
+            self._cur_dev.write(prompt)
 
-        # Implement read timeout for POSIX systems
-        # Per the Python documentation, select does not work for
-        # file objects in a Windows environment
-        if timeout is not None and os.name != 'nt':
-            r, _, _ = select.select((self._in_dev,), (), (), timeout)
-            if len(r) == 0:
-                return ""
-            dev = r[0]
-        else:
-            dev = self._in_dev
-
-        # Allow reading input of a certain size
-        if isinstance(size, int):
-            val = dev.read(size)
-        else:
-            val = dev.readline()
-        return val[:-1] if val.endswith("\n") else val
+        # Read from the current other device
+        return self._cur_dev.read(size=size, timeout=timeout)
 
     def write(self, data, flush=True):
         """Output to the current output device."""
         s = str(data)
-        self._out_dev.write(s)
-        if flush:
-            self._out_dev.flush()
-        self._update_cursor(s)
+        self._cur_dev.write(s, flush=flush, newline=False)
 
     def writeln(self, data):
         """Write to the current output device; appends a newline to output."""
         s = str(data)
-        self._out_dev.write("{data}\n".format(data=s))
-        self._update_cursor(s, newline=True)
-
-    def _update_cursor(self, data, newline=False):
-        """Update the X and Y position for the current device."""
-        lines = data.split("\n")
-        num_lines = len(lines)
-        num_newlines = (num_lines - 1) + int(newline)
-        num_chars = len(lines[num_lines-1]) if not newline else 0
-        new_x = self.device_x() + num_chars if num_newlines == 0 else num_chars
-        new_y = self.device_y() + num_newlines
-        try:
-            self._devices[self._cur_dev]['x'] = new_x
-            self._devices[self._cur_dev]['y'] = new_y
-        except KeyError:
-            self._def_x = new_x
-            self._def_y = new_y
+        self._cur_dev.write(s, flush=True, newline=True)
 
     def write_error(self, data):
         """Output to the current error device."""
@@ -561,3 +525,183 @@ def _check_args(tag_args, in_args):
         raise mumpy.MUMPSSyntaxError("Function or subroutine has fewer "
                                      "arguments than provided.",
                                      err_type="TAGFEWERARGS")
+
+
+def _select_input(dev, timeout=None, is_file=True):
+    """Perform an select timeout for an input device on POSIX systems.
+
+    The Python documentation indicates that select will not work for
+    file objects in Windows, so this function will return the device
+    if on Windows and the object is indicated as a file. Note that this
+    means there is no timeout on Windows."""
+    # Implement read timeout for POSIX systems
+    # Per the Python documentation, select does not work for
+    # file objects in a Windows environment
+    if timeout is not None and not (is_file and os.name == 'nt'):
+        r, _, _ = select.select((dev,), (), (), timeout)
+        if len(r) == 0:
+            return None
+        return r[0]
+    else:
+        return dev
+
+
+class MUMPSDevice:
+    """Represents a file or network device usable by an M routine.
+
+    Sockets and files have a number of functional differences, so it became
+    necessary to abstract these differences from the environment management
+    code."""
+    def __init__(self, dev, opts=None):
+        # Device name and input options
+        self._dev = dev
+        self._opts = opts
+
+        # $X and $Y values for this device
+        self.x = 0
+        self.y = 0
+
+        # File and socket objects
+        self._file = None
+        self._socket = None
+        self._socktype = None
+        self._sockaddr = None
+
+        # Process the input options
+        self._process_opts()
+
+    def _process_opts(self):
+        """Process input options. Check for any invalid options.
+
+        Handles all of the different devices parameters listed below:
+        * 'listen' = an IP address or Port to listen on
+        * 'mode' = file opening mode ('r+','a','w','r','x') (DEFAULT: 'r+')
+        * 'connect' = an IP address/Port to connect to """
+        # Handle no input options
+        if self._opts is None:
+            self._opts = {'mode': 'r+'}
+            return
+
+        # Check for valid file input options
+        self._opts['mode'] = self._opts['mode'] if 'mode' in self._opts else 'r+'
+        if self._opts['mode'] not in _modes:
+            raise mumpy.MUMPSSyntaxError("Invalid IO mode selected; choose "
+                                         "one of {}.".format(_modes),
+                                         err_type="BADIOMODE")
+
+        # We're done if this isn't a socket
+        if not self._is_socket():
+            return
+
+        # We cannot listen and connect on the same device
+        if 'listen' in self._opts and 'connect' in self._opts:
+            raise mumpy.MUMPSSyntaxError("Cannot listen and connect on "
+                                         "same device.",
+                                         err_type="BADOPTS")
+
+        # Attempt to parse the given address
+        if 'listen' in self._opts:
+            self._socktype = 'listen'
+            url = _make_url(self._opts['listen'])
+            addr = urlparse.urlparse(url)
+        else:
+            self._socktype = 'connect'
+            url = _make_url(self._opts['connect'])
+            addr = urlparse.urlparse(url)
+
+        # Create the socket path
+        self._sockaddr = (addr.path, addr.port)
+
+    def __str__(self):
+        """Return the name of this device."""
+        return str(self._dev)
+
+    def open(self):
+        """Open the file and socket devices."""
+        # Socket files will have either a listen or connect parameter
+        if self._is_socket():
+            self._open_socket()
+        else:
+            self._open_file()
+
+    def _is_socket(self):
+        """Return true if this device should be treated as a socket."""
+        return 'listen' in self._opts or 'connect' in self._opts
+
+    def _open_file(self):
+        """Open a file device."""
+        try:
+            self._file = open(self._dev,
+                              mode=self._opts['mode'],
+                              encoding="utf8")
+        except FileNotFoundError:
+            self._file = open(self._dev,
+                              mode='a+',
+                              encoding="utf8")
+        except OSError as e:
+            raise mumpy.MUMPSSyntaxError("Invalid IO operation; operating "
+                                         "system returned '{}'.".format(str(e)))
+
+    def _open_socket(self):
+        """Open a socket device."""
+        try:
+            self._socket = socket.socket()
+            if self._socktype == 'listen':
+                self._socket.bind(self._sockaddr)
+                self._socket.listen(5)
+                mode = 'r'
+            else:
+                self._socket.connect(self._sockaddr)
+                mode = 'w'
+            self._file = self._socket.makefile(mode, encoding='utf8')
+        except OSError:
+            raise mumpy.MUMPSSyntaxError("Invalid network socket specified.",
+                                         err_type="BADSOCKET")
+
+    def close(self):
+        """Attempt to close both the file and socket objects."""
+        try:
+            self._file.close()
+        except AttributeError:
+            pass
+
+        try:
+            self._socket.close()
+        except AttributeError:
+            pass
+
+    def read(self, size=None, timeout=None):
+        """Read from the file device."""
+        # Perform a select on the device
+        dev = _select_input(self._file, timeout=timeout, is_file=True)
+
+        # Allow reading input of a certain size
+        if isinstance(size, int):
+            val = dev.read(size)
+        else:
+            val = dev.readline()
+
+        return val[:-1] if val.endswith("\n") else val
+
+    def write(self, data, flush=True, newline=False):
+        """Write out to the file device. This function will automatically
+        flush sockets."""
+        data = "{}\n".format(data) if newline else data
+        self._file.write(data)
+        if flush or self._is_socket():
+            self._file.flush()
+        self._update_cursor(data, newline=newline)
+
+    def _update_cursor(self, data, newline=False):
+        """Update the X and Y position for the current device."""
+        lines = data.split("\n")
+        num_lines = len(lines)
+        num_newlines = (num_lines - 1) + int(newline)
+        num_chars = len(lines[num_lines-1]) if not newline else 0
+        self.x = self.x + num_chars if num_newlines == 0 else num_chars
+        self.y += num_newlines
+
+
+def _make_url(addr):
+    """Create a URL that will be recognized by urlparse."""
+    return addr if str(addr).startswith("//") else "//{}".format(addr)
