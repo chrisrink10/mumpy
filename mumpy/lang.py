@@ -217,18 +217,24 @@ def job_cmd(args, env):
         sub, params, timeout = arg
         timeout = None if timeout is None else timeout.as_number()
 
-        # Prepare the new process parameters
-        cmd = [
-            sys.argv[0],
-            "-f", sub.rou.name(),
-            "-t", str(sub.tag),
-            "-r",
-        ]
+        # Prepare the command-line call - different handling for Windows
+        if os.name == 'nt':
+            cmd = [sys.executable, 'mumpy.py']
+        else:
+            cmd = [sys.argv[0]]
+
+        # Add some default arguments
+        cmd.append("-f")
+        cmd.append(sub.rou.name())
+        cmd.append("-t")
+        cmd.append(str(sub.tag))
+        # cmd.append("-r")                  # No need to force recompile
 
         # Add arguments if they are given
         if sub.args is not None:
-            cmd.append("-a")
-            cmd.append(" ".join(tuple(str(i) for i in sub.args)))
+            cmd.append("--args")
+            for arg in sub.args:
+                cmd.append(str(arg))
 
         # Handle any special parameters
         if params is not None:
@@ -239,7 +245,9 @@ def job_cmd(args, env):
 
         # Initiate the new process
         try:
-            subprocess.call(cmd, timeout=timeout)
+            p = subprocess.Popen(cmd)
+            p.wait(timeout)
+            env.set("$ZJ", p.pid)
         except subprocess.TimeoutExpired:
             env.set("$T", mumps_false())
 

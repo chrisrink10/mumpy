@@ -34,15 +34,15 @@ def main():
                         required=False,
                         nargs=1
                         )
-    parser.add_argument("-a", "--args",
-                        help="The arguments to pass to the specified tag",
-                        required=False,
-                        nargs="*"
-                        )
     parser.add_argument("-dev", "--device",
                         help="The I/O device this process should start with",
                         required=False,
                         nargs=1
+                        )
+    parser.add_argument("-a", "--args",
+                        help="The arguments to pass to the specified tag",
+                        required=False,
+                        nargs="*"
                         )
     parser.add_argument("-r", "--recompile",
                         help="Recompile any routines before interpreting.",

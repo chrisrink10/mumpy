@@ -34,6 +34,7 @@ TESTROU ;
  s fails=fails+$$TestGoto()
  s fails=fails+$$TestGotoLoop()
  s fails=fails+$$TestForLoops()
+ s fails=fails+$$TestSockets()
  ;
  ; Report the results
  w !,"---------------------------------------------------------"
@@ -634,4 +635,70 @@ TestForLoops() ;
  ;
  d ReportResults(fail)
  q +fail
+ ;
+ ;**************************
+ ;* Socket Device test
+ ;**************************
+TestSockets() ;
+ n fail
+ s fail=$$socketServer("localhost",60002,10,20)
+ d ReportResults(fail)
+ q +fail
+ ;
+ ; Socket server -> will job off a client to connect back to itself
+socketServer(host,port,bytes,timeout) ;
+ n ln,dev,addr,input,gen,conn,res
+ w !,"Testing socket objects..."
+ s res=1
+ ;
+ ; Set some reasonable defaults
+ s:$S(+port<1:1,+port>65535:1,1:0) port=8080
+ s:$S(+bytes<1:1,+bytes>4096:1,1:0) bytes=10
+ s:$S(+timeout<1:1,+timeout>3600:1,1:0) timeout=10
+ ;
+ ; Open the server device
+ s dev="HTTP-Listen"
+ s addr=$$makeInterface(port)
+ o dev:("listen"=addr)
+ ;
+ ; Generate some random characters for the client to send
+ f ln=1:1:bytes s gen=gen_$C($R(93)+33)
+ ;
+ ; Spawn the client job and report it's PID
+ s conn=$$makeHostname(host,port)
+ j socketClient(conn,gen)
+ ;
+ ; Begin listening for the client to communicate back
+ u dev
+ r input#bytes:timeout
+ ;
+ ; Check that input is equal to GEN
+ i gen=input s res=0
+ ;
+ ; Close the server socket
+ c dev
+ q +res
+ ;
+ ; Client socket
+socketClient(dest,gen) ;
+ n serv
+ ;
+ ; Open the client socket
+ s serv="HTTP-Connect"
+ o serv:("connect"=dest)
+ u serv
+ ;
+ ; Write the gen input back to the server
+ w gen
+ ;
+ ; Close the connection
+ c serv
+ q
+ ;
+ ; Make a full hostname
+makeHostname(host,port) ;
+ q host_":"_+port
+ ;
+makeInterface(port) ;
+ q ":"_+port
  q

@@ -7,6 +7,7 @@ devices.
 Licensed under a BSD license. See LICENSE for more information.
 
 Author: Christopher Rink"""
+import codecs
 import io
 import os
 import select
@@ -25,6 +26,9 @@ _modes = ('r',      # Read-only. File pointer at beginning.
           'w+',     # Read-write. Overwrites file if exists, else creates.
           'a+',     # Read-write. File pointer at end. Creates if not exists.
 )
+
+# The maximum number of bytes to receive in a single socket recv
+_socket_chunk_max = 4096
 
 # Default $PRINCIPAL file
 _default_device = 'STANDARD'
@@ -408,7 +412,8 @@ class MUMPSEnvironment:
         """Return the name of the current device."""
         return mumpy.MUMPSExpression(str(self._cur_dev))
 
-    def default_device(self):
+    @staticmethod
+    def default_device():
         """Return the default device for this session."""
         return mumpy.MUMPSExpression(_default_device)
 
@@ -425,13 +430,21 @@ class MUMPSEnvironment:
         # Store the device in string form only
         dev = str(dev)
 
-        # We don't need to open this device again
+        # We don't need to fully re-open this device
+        # Just call the device's open open() method
         if dev in self._devices:
+            self._devices[dev].open()
             return
 
         # Try to open the device
-        self._devices[dev] = MUMPSDevice(dev, opts)
-        self._devices[dev].open()
+        try:
+            tmp = MUMPSDevice(dev, opts)
+            tmp.open()
+        except mumpy.MUMPSSyntaxError:
+            raise
+
+        # Set the device if the open does not fail
+        self._devices[dev] = tmp
 
     def close(self, dev):
         """Close a file device and remove it from use if it is in use."""
@@ -452,7 +465,7 @@ class MUMPSEnvironment:
 
         # Check if the device we just closed was the current device;
         # If so, revert back to the $PRINCIPAL IO device
-        if self._cur_dev == dev:
+        if str(self._cur_dev) == dev:
             self.use(_default_device)
 
     def use(self, dev):
@@ -527,25 +540,6 @@ def _check_args(tag_args, in_args):
                                      err_type="TAGFEWERARGS")
 
 
-def _select_input(dev, timeout=None, is_file=True):
-    """Perform an select timeout for an input device on POSIX systems.
-
-    The Python documentation indicates that select will not work for
-    file objects in Windows, so this function will return the device
-    if on Windows and the object is indicated as a file. Note that this
-    means there is no timeout on Windows."""
-    # Implement read timeout for POSIX systems
-    # Per the Python documentation, select does not work for
-    # file objects in a Windows environment
-    if timeout is not None and not (is_file and os.name == 'nt'):
-        r, _, _ = select.select((dev,), (), (), timeout)
-        if len(r) == 0:
-            return None
-        return r[0]
-    else:
-        return dev
-
-
 class MUMPSDevice:
     """Represents a file or network device usable by an M routine.
 
@@ -563,6 +557,7 @@ class MUMPSDevice:
 
         # File and socket objects
         self._file = None
+        self._is_sock = None
         self._socket = None
         self._socktype = None
         self._sockaddr = None
@@ -570,17 +565,26 @@ class MUMPSDevice:
         # Process the input options
         self._process_opts()
 
+    def _is_stdio(self):
+        """Return True if this device is the Standard I/O device."""
+        return self._dev == 'STANDARD'
+
     def _process_opts(self):
         """Process input options. Check for any invalid options.
 
         Handles all of the different devices parameters listed below:
         * 'listen' = an IP address or Port to listen on
+        * 'encoding' = a valid encoding
         * 'mode' = file opening mode ('r+','a','w','r','x') (DEFAULT: 'r+')
         * 'connect' = an IP address/Port to connect to """
         # Handle no input options
         if self._opts is None:
-            self._opts = {'mode': 'r+'}
+            self._set_default_opts()
             return
+
+        # Evaluate the options (options may be expressions, so may be
+        # unevaluated when we receive them)
+        self._opts = {k: str(v) for k, v in self._opts.items()}
 
         # Check for valid file input options
         self._opts['mode'] = self._opts['mode'] if 'mode' in self._opts else 'r+'
@@ -588,6 +592,26 @@ class MUMPSDevice:
             raise mumpy.MUMPSSyntaxError("Invalid IO mode selected; choose "
                                          "one of {}.".format(_modes),
                                          err_type="BADIOMODE")
+
+        # Set default encoding value
+        try:
+            enc = self._opts['encoding']
+
+            # Encoding of None indicates just return bytes
+            # Force the mode to include binary
+            if enc is "":
+                self._opts['encoding'] = None
+                self._opts['mode'] += 'b'
+        except KeyError:
+            self._opts['encoding'] = 'utf8'
+
+        # Check for a valid codec
+        try:
+            if self._opts['encoding'] is not None:
+                _ = codecs.lookup(self._opts['encoding'])
+        except LookupError:
+            raise mumpy.MUMPSSyntaxError("Invalid file encoding selected.",
+                                         err_type="BADENCODE")
 
         # We're done if this isn't a socket
         if not self._is_socket():
@@ -610,7 +634,15 @@ class MUMPSDevice:
             addr = urlparse.urlparse(url)
 
         # Create the socket path
-        self._sockaddr = (addr.path, addr.port)
+        self._sockaddr = ('0.0.0.0' if addr.hostname is None else addr.hostname,
+                          addr.port)
+
+    def _set_default_opts(self):
+        """If no options are given for a device, set these defaults."""
+        self._opts = {
+            'mode': 'r+',
+            'encoding': 'utf8',
+        }
 
     def __str__(self):
         """Return the name of this device."""
@@ -626,34 +658,36 @@ class MUMPSDevice:
 
     def _is_socket(self):
         """Return true if this device should be treated as a socket."""
-        return 'listen' in self._opts or 'connect' in self._opts
+        if self._is_sock is None:
+            self._is_sock = 'listen' in self._opts or 'connect' in self._opts
+        return self._is_sock
 
     def _open_file(self):
         """Open a file device."""
         try:
             self._file = open(self._dev,
                               mode=self._opts['mode'],
-                              encoding="utf8")
+                              encoding=self._opts['encoding'])
         except FileNotFoundError:
             self._file = open(self._dev,
                               mode='a+',
-                              encoding="utf8")
+                              encoding=self._opts['encoding'])
         except OSError as e:
             raise mumpy.MUMPSSyntaxError("Invalid IO operation; operating "
                                          "system returned '{}'.".format(str(e)))
 
     def _open_socket(self):
-        """Open a socket device."""
+        """Open a socket device. Listener (server) sockets will only accept
+        incoming connections on a `READ` operation. Client sockets both
+        accept incoming data and permit outgoing data immediately after
+        they are opened."""
         try:
             self._socket = socket.socket()
             if self._socktype == 'listen':
                 self._socket.bind(self._sockaddr)
                 self._socket.listen(5)
-                mode = 'r'
             else:
                 self._socket.connect(self._sockaddr)
-                mode = 'w'
-            self._file = self._socket.makefile(mode, encoding='utf8')
         except OSError:
             raise mumpy.MUMPSSyntaxError("Invalid network socket specified.",
                                          err_type="BADSOCKET")
@@ -664,16 +698,36 @@ class MUMPSDevice:
             self._file.close()
         except AttributeError:
             pass
+        finally:
+            self._file = None
 
         try:
             self._socket.close()
         except AttributeError:
             pass
+        finally:
+            self._socket = None
 
     def read(self, size=None, timeout=None):
-        """Read from the file device."""
+        """Read from the device.
+
+        If size is None, then return all of the bytes until EOF for file
+        devices or until the socket is closed for sockets."""
+        if self._is_socket():
+            return self._read_socket(size=size, timeout=timeout)
+        else:
+            return self._read_file(size=size, timeout=timeout)
+
+    def _read_file(self, size=None, timeout=None):
+        """Read from a file device.
+
+        For Standard Input, we need to specifically pass the sys.stdin
+        file object, since the BufferedRWPair wrapping StdIn/StdOut does
+        not have a fileno() and cannot be triaged by select()."""
         # Perform a select on the device
-        dev = _select_input(self._file, timeout=timeout, is_file=True)
+        dev = self._select_input(sys.stdin if self._is_stdio() else self._file,
+                                 timeout=timeout,
+                                 is_file=True)
 
         # Allow reading input of a certain size
         if isinstance(size, int):
@@ -681,16 +735,105 @@ class MUMPSDevice:
         else:
             val = dev.readline()
 
-        return val[:-1] if val.endswith("\n") else val
+        # Get the appropriate newline character (in case no encoding specified)
+        newline = bytes(
+            "\n", encoding='utf-8'
+        ) if self._opts['encoding'] is None else "\n"
+
+        # Truncate the final newline
+        return val[:-1] if val.endswith(newline) else val
+
+    def _read_socket(self, size=None, timeout=None):
+        """Perform a read operation on a socket device."""
+        # Set the read timeout
+        self._socket.settimeout(timeout)
+
+        # Begin accepting connections on the listener socket type
+        if self._socktype == 'listen':
+            try:
+                client, _ = self._socket.accept()
+            except socket.timeout:
+                return ""
+        else:
+            client = self._socket
+
+        # Set limits and individual receipt size
+        if size is None:
+            limit = None
+            size = _socket_chunk_max
+        else:
+            limit = int(size)
+            size = limit if limit < _socket_chunk_max else _socket_chunk_max
+
+        # Receive the bytes
+        recvd = 0
+        in_bytes = []
+        while True:
+            try:
+                # Receive the byte chunks of the given size
+                chunk = client.recv(size)
+
+                # Empty bytes indicate that the socket is closed
+                if chunk == bytes():
+                    raise ValueError
+
+                # Add the bytes to our list
+                in_bytes.append(chunk)
+
+                # Make sure we don't exceed our limit
+                recvd += size
+                if limit is not None:
+                    size = size if limit - recvd >= size else limit - recvd
+            except (socket.timeout, ValueError):
+                break
+
+        # Return our bytes as a single entity
+        return bytes().join(in_bytes).decode(self._opts['encoding'])
+
+    @staticmethod
+    def _select_input(dev, timeout=None, is_file=True):
+        """Perform an select timeout for an input device on POSIX systems.
+
+        The Python documentation indicates that select will not work for
+        file objects in Windows, so this function will return the device
+        if on Windows and the object is indicated as a file. Note that this
+        means there is no timeout on Windows."""
+        # Implement read timeout for POSIX systems
+        # Per the Python documentation, select does not work for
+        # file objects in a Windows environment
+        if not (is_file and os.name == 'nt'):
+            r, _, _ = select.select((dev,), (), (), timeout)
+            if len(r) == 0:
+                return None
+            return r[0]
+        else:
+            return dev
 
     def write(self, data, flush=True, newline=False):
-        """Write out to the file device. This function will automatically
-        flush sockets."""
+        """Write out to the file device. Flush does not mean anything for
+        socket devices."""
         data = "{}\n".format(data) if newline else data
-        self._file.write(data)
-        if flush or self._is_socket():
-            self._file.flush()
+        if self._is_socket():
+            self._write_socket(data)
+        else:
+            self._write_file(data, flush=flush)
         self._update_cursor(data, newline=newline)
+
+    def _write_file(self, data, flush=True):
+        """Write out data to a file."""
+        self._file.write(data)
+        if flush:
+            self._file.flush()
+
+    def _write_socket(self, data):
+        """Write out data to a socket connection."""
+        data = bytes(data, encoding=self._opts['encoding'])
+        l = len(data)
+        snt = 0
+        while snt < l:
+            snt += self._socket.send(data[snt:])
+            if snt == 0:
+                break
 
     def _update_cursor(self, data, newline=False):
         """Update the X and Y position for the current device."""

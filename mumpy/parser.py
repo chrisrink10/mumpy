@@ -48,7 +48,8 @@ class MUMPSParser:
         self.rou['parser'] = yacc.yacc(module=self, start='start',
                                        debug=debug,
                                        debuglog=self.debug_log,
-                                       tabmodule='routab')
+                                       tabmodule='routab',
+                                       optimize=int(not debug))
 
         # The REPL and XECUTE commands require slightly different
         # lexing and parsing rules, so we maintain two lexer and parsers
@@ -57,7 +58,8 @@ class MUMPSParser:
         self.repl['parser'] = yacc.yacc(module=self,
                                         debug=debug,
                                         start='valid_input',
-                                        tabmodule='repltab')
+                                        tabmodule='repltab',
+                                        optimize=int(not debug))
 
     def parse_repl(self, data):
         """Parse an arbitrary line of MUMPS code and return the output to
@@ -1185,7 +1187,8 @@ class MUMPSParser:
                        | principal_var
                        | test_var
                        | x_var
-                       | y_var"""
+                       | y_var
+                       | z_job"""
         p[0] = p[1]
 
     def p_horolog(self, p):
@@ -1218,6 +1221,10 @@ class MUMPSParser:
     def p_y_var(self, p):
         """y_var : DOLLARY"""
         p[0] = mumpy.MUMPSExpression(lambda env=self.env: env.device_y())
+
+    def p_z_job(self, p):
+        """z_job : ZJOB"""
+        p[0] = mumpy.MUMPSExpression(lambda env=self.env: env.get("$ZJ"))
 
     ###################
     # LOGIC

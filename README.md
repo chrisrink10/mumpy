@@ -286,7 +286,7 @@ default IO device, referred to in MUMPy as `STANDARD` (which can always be
 accessed by the system variable `$PRINCIPAL`).
 
 MUMPS Input is done largely through the `read` command, which accepts a
-list of MUMPS expressions or variable names. For each variable name in its
+list of MUMPS string literals or variable names. For each variable name in its
 argument list, the `read` command will read in from the current device
 until the user terminates input using the Return key. The value of the 
 user's input will be stored in the variable given.
@@ -297,6 +297,103 @@ or local or global variable names. The `write` command will output the
 evaluated expressions or stored values to the current output device in
 strict left-to-right order.
 
+The `read` and `write` commands offer a few convenience symbols for certain
+outputs. These symbols can be combined and interspersed between other
+arguments. The symbols are:
+
+ * Newline, `!`
+ * Page clear, `#` (only for ANSI compliant terminals)
+ * Column offset, `?N` where `N` is an integral value
+ 
+There are also a few other control sequences that programmers can use to
+control the input and output from their devices. The `write` command permits
+integral values (and expressions which are evaluated as numeric) to be
+prefixed with a `*` to output that character. Thus, `write *45` is functionally
+equivalent to `write $C(45)`. 
+
+    mumpy > write !!
+    
+    
+    mumpy > write ?10,"Christopher",?15,"Rink"
+              ChristopherRink
+    mumpy > write *45
+    -
+    mumpy > write $CHAR(45)
+    -
+
+Reading permits input size restrictions (which might help preventing a
+sort of DoS type attack) and timeout values for read operations. To indicate
+a maximum read length, programmers can indicate the number of bytes after
+their input variable with a `#` character. Timeouts are specified after
+a `:` at the end of the read argument. If no data is read by the timeout 
+period, the value of `$T` in the current stack frame is set to `0`. Another
+convenience method for programmers is that they can specify reading just
+one character of input by prefixing their read argument with a `*`.
+Here are some examples:
+
+    mumpy > read input          ; Will read until newline
+    mumpy > read input#10       ; Will read exactly 10 bytes
+    mumpy > read input#10:10    ; Will read 10 bytes or fail after 10 seconds
+    mumpy > read *input         ; Will read exactly 1 byte
+
+### Devices
+M programmers can interact with devices in their environment using just
+a few of the basic built-in commands. Devices may be file-like objects or
+network sockets. To open a new device, you can issue an `open` command
+for the named device. Once a device is opened, you can begin using it
+with the `use` command. After you have issued a `use`, subsequent `read`
+and `write` commands will use the newly selected device for input
+and output. 
+
+Programmers can return to the standard input/output stream
+by issuing a `use $PRINCIPAL` or `use $P` command. The `$PRINCIPAL` 
+intrinsic always stores the name of the initial device for the current
+process. Likewise, the intrinsic `$IO` stores the name of the current
+device. Thus, it should always be the case that `$IO` equals `$P` when
+the process starts. Note that if you `close` the current device before
+switching to another device, MUMPy will automatically switch your
+current device back to the `$PRINCIPAL` device.
+
+An example of using a file device is given below:
+
+    mumpy > set file="names.txt"
+    mumpy > open file
+    mumpy > use file
+    mumpy > write "Amy"_$C(10)
+    mumpy > write "Chris"_$C(10)
+    mumpy > write "Jules"_$C(10)
+    mumpy > close file
+    
+This should produce a file looking like this:
+
+    Amy
+    Chris
+    Jules
+    
+For network socket devices, programmers need to specify some parameters
+for their device. To define a server socket, the `listen` device parameter
+should tell MUMPy which hostname/port to respond to connections on. Likewise,
+client sockets should use `connect` to indicate which hostname/port connect
+to. Note that for network sockets, the device name is largely symbolic.
+The device parameters define the actual interface for these devices. File
+devices actually use the name to find the actual file object.
+
+MUMPy allows programmers to indicate their preferred encoding for the
+current device (any device, not just sockets). To specify an encoding,
+simply use the `encoding` device parameter. Note that the encoding you
+specify must be a valid encoding name as recognized by Python's codecs
+library. 
+
+Below is an example of opening a server socket and waiting for inputs. 
+Note that we specify a generic port to listen on as well as a max input
+size and timeout value.
+
+    mumpy > set size=10,timeout=10
+    mumpy > set dev="HTTP-Listen"
+    mumpy > open dev:("listen"=":60002")
+    mumpy > use dev
+    mumpy > read input#size:timeout
+    
 ### Routines
 Routines are briefly introduced in the Use section of this document. In M,
 routines are the modular code-units by which programmers organize their
@@ -394,6 +491,8 @@ MUMPy:
 * [Thunks, Trampolines, and Continuation Passing]
   (http://jtauber.com/blog/2008/03/30/thunks,_trampolines_and_continuation_passing/) -
   is a great resource on usage of all three title elements in Python.
+* [Python Socket HOWTO](https://docs.python.org/3.4/howto/sockets.html) -
+  a great resource for understanding the basics of Python socket programming.
 
 ## License
 MUMPy is licensed under the 3-clause BSD license. See the LICENSE file 

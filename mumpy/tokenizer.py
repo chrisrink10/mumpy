@@ -143,6 +143,8 @@ class MUMPSLexer:
         '$test': 'TEST',
         '$x': 'DOLLARX',
         '$y': 'DOLLARY',
+        '$zj': 'ZJOB',
+        '$zjob': 'ZJOB',
     }
 
     # Create a tuple of
