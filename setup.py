@@ -16,5 +16,10 @@ setup(
     license='3-Clause BSD License',
     author='Christopher Rink',
     author_email='chrisrink10@gmail.com',
-    description='ANSI M interpreter'
+    description='ANSI M interpreter',
+    entry_points={
+        'console_scripts': [
+            'mumpy = mumpy.interpreter:main'
+        ]
+    }
 )

@@ -13,7 +13,72 @@ try:
     import readline
 except ImportError:
     pass
+import argparse
 import mumpy
+
+
+def main():
+    """The main command line entry point for MUMPy."""
+    parser = argparse.ArgumentParser(
+        description="MUMPS interpreter. "
+                    "Summoning this script without any arguments will open the "
+                    "included MUMPS REPL capability."
+    )
+    parser.add_argument("-d", "--debug",
+                        help="Enable debug output in REPL mode",
+                        required=False,
+                        action='store_true'
+                        )
+    parser.add_argument("-c", "--compile",
+                        help="A list of MUMPS scripts to compile.",
+                        required=False,
+                        nargs='*'
+                        )
+    parser.add_argument("-f", "--file",
+                        help="A MUMPS routine to execute.",
+                        required=False,
+                        nargs=1
+                        )
+    parser.add_argument("-t", "--tag",
+                        help="The tag to execute in the specified routine",
+                        required=False,
+                        nargs=1
+                        )
+    parser.add_argument("-dev", "--device",
+                        help="The I/O device this process should start with",
+                        required=False,
+                        nargs=1
+                        )
+    parser.add_argument("-a", "--args",
+                        help="The arguments to pass to the specified tag",
+                        required=False,
+                        nargs="*"
+                        )
+    parser.add_argument("-r", "--recompile",
+                        help="Recompile any routines before interpreting.",
+                        required=False,
+                        action='store_true'
+                        )
+    args = parser.parse_args()
+
+    # Process routine compilations first
+    if args.compile:
+        compile_routine(args.compile,
+                        args.debug)
+
+    # Then interpret any files
+    if args.file:
+        interpret(args.file[0],
+                  tag=None if args.tag is None else args.tag[0],
+                  device=None if args.device is None else args.device[0],
+                  args=args.args,
+                  recompile=args.recompile,
+                  debug=args.debug)
+
+    # If the user wants to neither compile any routines or interpret any files,
+    # start the REPL
+    if not args.compile and not args.file:
+        start_repl(args.debug)
 
 
 def start_repl(debug=False):
@@ -26,6 +91,10 @@ def start_repl(debug=False):
         # Accept user input
         while True:
             current_line = input("mumpy > ")
+
+            # Allow empty lines from the REPL
+            if current_line.strip() == "":
+                continue
 
             # Catch any Syntax errors from the user input
             try:

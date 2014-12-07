@@ -48,7 +48,7 @@ class MUMPSParser:
         self.rou['parser'] = yacc.yacc(module=self, start='start',
                                        debug=debug,
                                        debuglog=self.debug_log,
-                                       tabmodule='routab',
+                                       tabmodule='mumpy.routab',
                                        optimize=int(not debug))
 
         # The REPL and XECUTE commands require slightly different
@@ -58,7 +58,7 @@ class MUMPSParser:
         self.repl['parser'] = yacc.yacc(module=self,
                                         debug=debug,
                                         start='valid_input',
-                                        tabmodule='repltab',
+                                        tabmodule='mumpy.repltab',
                                         optimize=int(not debug))
 
     def parse_repl(self, data):
