@@ -12,6 +12,7 @@ setup(
     name='mumpy',
     version='0.1',
     packages=['mumpy'],
+    install_requires=['ply>=3.4', 'blist>=1.3.6'],
     url='github.com/chrisrink10/mumpy',
     license='3-Clause BSD License',
     author='Christopher Rink',
