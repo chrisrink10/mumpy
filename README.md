@@ -22,10 +22,10 @@ MUMPy can be installed using `pip`:
     pip install git+git://github.com/chrisrink10/mumpy@master
 
 ## Use
-To use MUMPy interactively, simply fire it up from the command line: `mumpy.py`. 
+To use MUMPy interactively, simply fire it up from the command line: `mumpy`. 
 
 MUMPy can interpret M source code files (files ending in a `*.m` extension) by
-typing `mumpy.py -f <NAME>` where `<NAME>` is the name of the routine,
+typing `mumpy -f <NAME>` where `<NAME>` is the name of the routine,
 excluding the extension. MUMPy will compile a Python module with the same
 base name. Users should note that routine base names should match the first
 tag (line label, explained below) in the routine file. This means that 
@@ -40,7 +40,7 @@ specify a tag to use with `-t` and a list of space-delimited arguments with
 the `-a` parameter. Summoning the `AskQuestion^LEARNM` function given at
 the end of this document can be done with the following command:
 
-    ./mumpy.py -f LEARNM -r -t AskQuestion -a "What time is it?" 10
+    ./mumpy -f LEARNM -r -t AskQuestion -a "What time is it?" 10
 
 ## MUMPS Primer
 I will provide a basic MUMPS primer for users who are unfamiliar with 
