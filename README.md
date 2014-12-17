@@ -40,7 +40,7 @@ specify a tag to use with `-t` and a list of space-delimited arguments with
 the `-a` parameter. Summoning the `AskQuestion^LEARNM` function given at
 the end of this document can be done with the following command:
 
-    ./mumpy -f LEARNM -r -t AskQuestion -a "What time is it?" 10
+    mumpy -f LEARNM -r -t AskQuestion -a "What time is it?" 10
 
 ## MUMPS Primer
 I will provide a basic MUMPS primer for users who are unfamiliar with 
